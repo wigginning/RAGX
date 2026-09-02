@@ -25,6 +25,7 @@ from ragx.api.middleware import (
     TraceMiddleware,
 )
 from ragx.api.routes import audit, chat, health, ingest, metrics, search
+from ragx.api.routes.traces import router as traces_router
 from ragx.core.settings import KBConfig, Settings
 from ragx.ingestion.pipeline import IngestionPipeline
 from ragx.ingestion.queue_redis import make_queue
@@ -32,6 +33,7 @@ from ragx.ingestion.store import MetadataStore
 from ragx.llm.prompts import PromptRegistry
 from ragx.llm.semantic_cache import SemanticCache
 from ragx.observability.metrics import get_metrics as _get_metrics
+from ragx.observability.rag_trace import RAGTraceStore
 from ragx.plugins import register_builtins
 from ragx.plugins.cache_memory import InMemoryExactCache
 from ragx.plugins.cache_redis import RedisCache
@@ -78,6 +80,7 @@ def _build_agentic_service(
     prompts: PromptRegistry,
     llm: Any,
     kb_cfg: KBConfig,
+    trace_store: Any | None = None,
 ) -> QueryService:
     """Wire the AgenticOrchestrator into a QueryService (07-agentic.md §7.9).
 
@@ -107,7 +110,7 @@ def _build_agentic_service(
     return QueryService(
         retriever, assembler, standard_service.router, prompts, llm,
         kb_cfg=kb_cfg, retrieval_cfg=standard_service.retrieval_cfg,
-        agentic=orchestrator,
+        agentic=orchestrator, trace_store=trace_store,
     )
 
 
@@ -134,6 +137,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await db.connect()
+        await trace_store.connect()
         await registry.startup_all()
         if settings.queue.auto_consume:
             # lite compose smoke: consume the in-process queue so uploads are
@@ -149,6 +153,7 @@ def create_app(
         await rate_limiter.shutdown()
         await registry.shutdown_all()
         await db.close()
+        await trace_store.close()
 
     app = FastAPI(title="RAGX", version="0.1.0", lifespan=lifespan)
     # Order (outermost -> innermost): audit -> trace -> auth -> rate-limit -> routes.
@@ -194,6 +199,10 @@ def create_app(
         embedder, vector_store, exact_cache=exact_cache, config=cache_cfg
     )
 
+    # RAG Trace store (OBS-04 §10.5). Lite uses in-memory; a production
+    # deployment can point this at the metadata SQLite path to persist traces.
+    trace_store = RAGTraceStore(":memory:")
+
     retrieval_cfg = RetrievalConfig()
     resolver = GraphChunkResolver(vector_store) if graph_store is not None else None
     retriever = HybridRetriever(
@@ -213,13 +222,14 @@ def create_app(
     standard_service = QueryService(
         retriever, assembler, router, prompts, llm,
         kb_cfg=kb_cfg, retrieval_cfg=retrieval_cfg,
+        trace_store=trace_store,
     )
 
     query_service = standard_service
     if kb_cfg.flags.agentic_enabled and llm is not None:
         query_service = _build_agentic_service(
             standard_service, retriever, assembler, embedder, graph_store,
-            prompts, llm, kb_cfg,
+            prompts, llm, kb_cfg, trace_store=trace_store,
         )
 
     pipeline = IngestionPipeline(registry, kb_cfg, db, llm=llm, prompts=prompts)
@@ -240,6 +250,7 @@ def create_app(
     app.state.audit_store = audit_store
     app.state.quota_store = quota_store
     app.state.semantic_cache = semantic_cache
+    app.state.trace_store = trace_store
 
     app.include_router(search.router, prefix="/v1")
     app.include_router(ingest.router, prefix="/v1")
@@ -247,5 +258,6 @@ def create_app(
     app.include_router(health.router, prefix="/v1")
     app.include_router(metrics.router, prefix="/v1")
     app.include_router(audit.router, prefix="/v1")
+    app.include_router(traces_router, prefix="/v1")
     app.state.metrics = _get_metrics()
     return app

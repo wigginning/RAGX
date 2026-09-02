@@ -158,3 +158,97 @@ class TestRAGTraceStore:
         deleted = await store.cleanup_expired()
         assert deleted == 0
         assert await store.get("fresh") is not None
+
+
+class TestQueryServiceTraceCapture:
+    """OBS-04 DoD: a query produces a replayable trace (§10.5)."""
+
+    async def test_query_persists_replayable_trace(self) -> None:
+        from ragx.core.settings import KBConfig
+        from ragx.retrieval.models import RetrievalConfig
+        from ragx.llm.prompts import PromptRegistry
+        from ragx.retrieval.pipeline import QueryService
+
+        store = RAGTraceStore(":memory:")
+        await store.connect()
+        hits = [_make_hit("chk_1", 0.9, ["dense"])]
+        cit = [Citation(chunk_id="chk_1", doc_id="doc_1", filename="f",
+                        page=1, snippet="s", score=0.9)]
+        svc = QueryService(
+            _FakeRetriever(hits), _FakeAssembler("ctx", cit), _FakeRouter(),
+            PromptRegistry(), _FakeLLM(text="the answer"),
+            kb_cfg=KBConfig(), retrieval_cfg=RetrievalConfig(),
+            trace_store=store,
+        )
+        res = await svc.query("what?", [0.1] * 8, kb_id="kb_1", trace_id="trace_x")
+        assert res.answer == "the answer"
+
+        trace = await store.get("trace_x")
+        assert trace is not None
+        assert trace.mode == "standard"
+        assert trace.query == "what?"
+        assert len(trace.retrieval.dense) == 1
+        assert trace.retrieval.dense[0]["chunk_id"] == "chk_1"
+        assert trace.assembled.citations == ["chk_1"]
+        assert len(trace.llm_calls) == 1
+        assert trace.llm_calls[0].role == "generate"
+        await store.close()
+
+    async def test_query_without_trace_store_is_noop(self) -> None:
+        from ragx.core.settings import KBConfig
+        from ragx.retrieval.models import RetrievalConfig
+        from ragx.llm.prompts import PromptRegistry
+        from ragx.retrieval.pipeline import QueryService
+
+        # No trace_store wired → query must still succeed, no trace captured.
+        svc = QueryService(
+            _FakeRetriever([_make_hit("chk_1", 0.9, ["dense"])]),
+            _FakeAssembler("ctx", []), _FakeRouter(),
+            PromptRegistry(), _FakeLLM(text="ans"),
+            kb_cfg=KBConfig(), retrieval_cfg=RetrievalConfig(),
+        )
+        res = await svc.query("q?", [0.1] * 8, kb_id="kb_1", trace_id="t_nostore")
+        assert res.answer == "ans"
+
+
+class _FakeRetriever:
+    def __init__(self, hits: list[RetrievalHit]) -> None:
+        self._hits = hits
+
+    async def retrieve(self, query, qvec, filter_expr=None):
+        return self._hits
+
+
+class _FakeAssembler:
+    def __init__(self, context: str, citations: list[Citation]) -> None:
+        self._context = context
+        self._citations = citations
+
+    def assemble(self, hits):
+        return self._context, self._citations
+
+
+class _FakeLLM:
+    def __init__(self, text: str = "ans", model: str = "m", usage=None) -> None:
+        self._text = text
+        self._model = model
+        self._usage = usage or TokenUsage()
+
+    async def chat(self, req):
+        class _Resp:
+            pass
+
+        r = _Resp()
+        r.text = self._text
+        r.model = self._model
+        r.usage = self._usage
+        r.cost_usd = 0.0
+        return r
+
+
+class _FakeRouter:
+    def __init__(self, mode: str = "standard") -> None:
+        self._mode = mode
+
+    async def route(self, query, kb_cfg, override):
+        return self._mode

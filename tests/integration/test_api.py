@@ -29,6 +29,8 @@ def test_openapi_generated(client) -> None:
     assert "/v1/tasks/{task_id}" in paths
     assert "/v1/health" in paths
     assert "/v1/chat/completions" in paths
+    assert "/v1/traces" in paths
+    assert "/v1/traces/{trace_id}" in paths
 
 
 def test_app_wires_semantic_cache(client) -> None:
@@ -125,3 +127,28 @@ def test_duplicate_upload_returns_2004(client) -> None:
         )
     assert resp.status_code == 202
     assert resp.json()["duplicate"] is True
+
+
+def test_traces_list_and_replay(client) -> None:
+    """OBS-04 DoD: GET /v1/traces lists + replays traces (§10.5)."""
+    import asyncio
+
+    from ragx.observability.rag_trace import RAGTrace
+
+    store = client.app.state.trace_store
+    asyncio.run(store.save(RAGTrace(
+        trace_id="t1", kb_id="kb_t", mode="standard", query="q1")))
+    asyncio.run(store.save(RAGTrace(
+        trace_id="t2", kb_id="kb_t", mode="agentic", query="q2")))
+
+    lst = client.get("/v1/traces?kb_id=kb_t")
+    assert lst.status_code == 200
+    body = lst.json()
+    assert body["count"] == 2
+
+    one = client.get("/v1/traces/t1")
+    assert one.status_code == 200
+    assert one.json()["trace_id"] == "t1"
+
+    missing = client.get("/v1/traces/does_not_exist")
+    assert missing.status_code == 404

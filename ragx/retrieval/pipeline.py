@@ -19,6 +19,7 @@ from ragx.core.models import (
 )
 from ragx.core.settings import KBConfig
 from ragx.llm.prompts import PromptRegistry
+from ragx.observability.rag_trace import RAGTraceCollector, RAGTraceStore, TraceLLMCall
 from ragx.retrieval.assembler import ContextAssembler
 from ragx.retrieval.hybrid import HybridRetriever
 from ragx.retrieval.models import RetrievalConfig
@@ -46,6 +47,7 @@ class QueryService:
         retrieval_cfg: RetrievalConfig,
         agentic: Any | None = None,
         metrics: Any | None = None,
+        trace_store: RAGTraceStore | None = None,
     ) -> None:
         self.retriever = retriever
         self.assembler = assembler
@@ -60,6 +62,9 @@ class QueryService:
         #: Optional injected Metrics; when None the process-wide singleton is
         #: resolved lazily so tests calling ``reset_metrics()`` stay correct.
         self._metrics = metrics
+        #: Optional RAG Trace store (OBS-04 §10.5). When set, every query
+        #: produces a replayable trace. ``None`` → no trace capture.
+        self._trace_store = trace_store
 
     # -- observability helpers (10-observability.md §10.2) -----------------
     def _metrics_obj(self) -> Any:
@@ -102,6 +107,34 @@ class QueryService:
         except Exception:  # pragma: no cover - defensive
             logger.debug("failed to record query metric", exc_info=True)
 
+    async def _flush_trace(
+        self,
+        collector: RAGTraceCollector | None,
+        result: QueryResult,
+        *,
+        citations: list[Any],
+        context: str,
+    ) -> None:
+        """Persist a RAG Trace for the finished query (OBS-04 §10.5).
+
+        Never raises — trace capture must never break the query path.
+        """
+        if collector is None or self._trace_store is None:
+            return
+        try:
+            collector.set_assembled(
+                len(context or ""), list(citations), self._trace_budget()
+            )
+            collector.set_degraded(bool(getattr(result, "degraded", False)))
+            collector.set_usage(result.usage)
+            await self._trace_store.save(collector.build())
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("failed to persist RAG trace", exc_info=True)
+
+    def _trace_budget(self) -> int:
+        """Token budget for the assembled context (best-effort, OBS-04)."""
+        return int(getattr(self.retrieval_cfg, "token_budget", 0) or 0)
+
     async def query(
         self,
         query: str,
@@ -114,21 +147,36 @@ class QueryService:
     ) -> QueryResult:
         override = override or RequestOverride()
         started = time.perf_counter()
+        # RAG Trace collector (OBS-04 §10.5); None when no store is wired.
+        collector = (
+            RAGTraceCollector(trace_id, kb_id, query)
+            if self._trace_store is not None else None
+        )
+
         mode = await self.router.route(query, self.kb_cfg, override)
+        if collector is not None:
+            collector.set_mode(mode)
 
         if mode == "fast":
             self._record_query(kb_id, "fast", "ok", time.perf_counter() - started)
-            return QueryResult(
+            result = QueryResult(
                 answer="", citations=[], mode="fast", trace_id=trace_id,
                 usage=TokenUsage(), cost_usd=0.0,
             )
+            await self._flush_trace(collector, result, citations=[], context="")
+            return result
 
         if mode == "agentic":
             if self.agentic is not None:
                 result = await self.agentic.run_agentic(query, kb_id, qvec)
+                if collector is not None:
+                    collector.set_mode(getattr(result, "mode", "agentic"))
                 self._record_query(
                     kb_id, getattr(result, "mode", "agentic"), "ok",
                     time.perf_counter() - started,
+                )
+                await self._flush_trace(
+                    collector, result, citations=result.citations, context=""
                 )
                 return result
             # No orchestrator wired in → degrade to standard (critical path).
@@ -137,6 +185,8 @@ class QueryService:
         retrieve_started = time.perf_counter()
         hits = await self.retriever.retrieve(query, qvec, self._exclude_cache(filter_expr))
         self._stage(kb_id, mode, "retrieve", time.perf_counter() - retrieve_started)
+        if collector is not None:
+            collector.add_dense_hits(hits)
 
         if not hits:
             logger.info("empty recall (4002) for kb=%s", kb_id)
@@ -147,18 +197,22 @@ class QueryService:
             self._record_query(
                 kb_id, mode, "empty", time.perf_counter() - started
             )
-            return QueryResult(
+            result = QueryResult(
                 answer=_EMPTY_ANSWER, citations=[], mode="standard",
                 trace_id=trace_id, usage=TokenUsage(), cost_usd=0.0,
                 details={"empty": True, "reason": "4002"},
             )
+            await self._flush_trace(collector, result, citations=[], context="")
+            return result
 
         context, citations = self.assembler.assemble(hits)
         generate_started = time.perf_counter()
-        answer = await self._generate(query, context, kb_id, trace_id)
+        answer = await self._generate(
+            query, context, kb_id, trace_id, collector=collector
+        )
         self._stage(kb_id, mode, "llm", time.perf_counter() - generate_started)
         self._record_query(kb_id, mode, "ok", time.perf_counter() - started)
-        return QueryResult(
+        result = QueryResult(
             answer=answer,
             citations=citations,
             mode="standard",
@@ -166,8 +220,17 @@ class QueryService:
             usage=TokenUsage(),
             cost_usd=0.0,
         )
+        await self._flush_trace(collector, result, citations=citations, context=context)
+        return result
 
-    async def _generate(self, query: str, context: str, kb_id: str, trace_id: str) -> str:
+    async def _generate(
+        self,
+        query: str,
+        context: str,
+        kb_id: str,
+        trace_id: str,
+        collector: RAGTraceCollector | None = None,
+    ) -> str:
         system, user = self.prompts.render_for_kb(
             "generate_standard",
             self.kb_cfg.prompt_overrides,
@@ -187,4 +250,13 @@ class QueryService:
             trace_id=trace_id,
         )
         resp = await self.llm.chat(req)
+        if collector is not None:
+            usage = getattr(resp, "usage", None)
+            collector.add_llm_call(TraceLLMCall(
+                role="generate",
+                model=getattr(resp, "model", "") or "",
+                tokens=usage if isinstance(usage, TokenUsage) else TokenUsage(),
+                cost_usd=float(getattr(resp, "cost_usd", 0.0) or 0.0),
+                prompt_name="generate_standard",
+            ))
         return resp.text
