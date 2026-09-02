@@ -1,0 +1,82 @@
+# RAGX test-profile services — minimal external stores for contract tests.
+#
+#   docker compose -f deploy/compose/test.yml up -d es qdrant
+#   docker compose -f deploy/compose/test.yml up -d neo4j
+#   pytest tests/contract -k "es or qdrant or neo4j"
+#
+# These are the same services referenced by docs/TASKS.md (RX-PLG-02/03) and
+# docs/design/11-plugins-builtin.md §11.3.3. The "full" compose lives in
+# deploy/compose/full.yml; this test.yml is a trimmed, password-local subset
+# with security disabled for local contract tests only.
+#
+# All middleware is deployed under one compose project with the ``ragx-``
+# prefix: project/network name is ``ragx`` and every container is
+# ``ragx-<service>``.
+name: ragx
+services:
+  es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: ragx-es
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.7
+    container_name: ragx-qdrant
+    ports:
+      - "6333:6333"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333 && echo ok || exit 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  neo4j:
+    image: neo4j:5.26
+    container_name: ragx-neo4j
+    mem_limit: 2g
+    environment:
+      - NEO4J_AUTH=neo4j/12345678
+    ports:
+      - "7474:7474"
+      # bolt 7687 falls inside a Windows Hyper-V reserved port range on this
+      # host, so the host side is mapped to 17687 (container stays on 7687).
+      # Tests must set NEO4J_URI=bolt://localhost:17687.
+      - "17687:7687"
+
+  minio:
+    image: minio/minio:latest
+    container_name: ragx-minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=ragx
+      - MINIO_ROOT_PASSWORD=ragx12345
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ragx-postgres
+    environment:
+      - POSTGRES_USER=ragx
+      - POSTGRES_PASSWORD=ragx12345
+      - POSTGRES_DB=ragx
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: ragx-redis
+    ports:
+      - "6379:6379"

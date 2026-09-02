@@ -1,0 +1,16 @@
+name: extract_entities.medical
+version: 1
+role: extract
+output: json
+schema: ragx.kg.schemas.ExtractionResult
+lang: auto
+system: |
+  You are a medical-domain entity extractor. Focus on clinical terms, drug
+  names, anatomical references, and ICD-style concepts. Output strict JSON
+  matching the ExtractionResult schema.
+user: |
+  Chunk text (medical domain):
+  {{chunk_text}}
+metadata:
+  description: Medical-domain KG extraction override (P1 override)
+  domain: medical

@@ -1,0 +1,171 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Query latency (P50/P95/P99) by stage",
+      "id": 1,
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(ragx_query_latency_seconds_bucket[5m])) by (le, stage))",
+          "legendFormat": "p50 {{stage}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(ragx_query_latency_seconds_bucket[5m])) by (le, stage))",
+          "legendFormat": "p95 {{stage}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(ragx_query_latency_seconds_bucket[5m])) by (le, stage))",
+          "legendFormat": "p99 {{stage}}",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Query total by mode + status",
+      "id": 2,
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum by (mode, status) (rate(ragx_query_total[5m]))",
+          "legendFormat": "{{mode}}/{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "LLM token usage by role / model",
+      "id": 3,
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 9},
+      "targets": [
+        {
+          "expr": "sum by (role, model) (rate(ragx_llm_tokens_total[5m]))",
+          "legendFormat": "{{role}} / {{model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "LLM cost (USD/s) by role / model",
+      "id": 4,
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 9},
+      "targets": [
+        {
+          "expr": "sum by (role, model) (rate(ragx_llm_cost_usd_total[5m]))",
+          "legendFormat": "{{role}} / {{model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Semantic cache hit ratio (per kb)",
+      "id": 5,
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 18},
+      "targets": [
+        {
+          "expr": "ragx_cache_hit_ratio",
+          "legendFormat": "{{kb}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingest task outcomes by status",
+      "id": 6,
+      "gridPos": {"h": 9, "w": 12, "x": 6, "y": 18},
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(ragx_ingest_task_total[5m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Agentic task outcomes",
+      "id": 7,
+      "gridPos": {"h": 9, "w": 6, "x": 18, "y": 18},
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(ragx_agentic_task_total[5m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Circuit breaker state (0=closed,1=open,2=half_open)",
+      "id": 8,
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 27},
+      "targets": [
+        {
+          "expr": "ragx_circuit_state",
+          "legendFormat": "{{model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "LLM retries (per role / model)",
+      "id": 9,
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 27},
+      "targets": [
+        {
+          "expr": "sum by (role, model) (rate(ragx_llm_retry_total[5m]))",
+          "legendFormat": "{{role}} / {{model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Empty-recall events (4002)",
+      "id": 10,
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 36},
+      "targets": [
+        {
+          "expr": "sum by (kb) (rate(ragx_retrieval_recall_empty_total[5m]))",
+          "legendFormat": "{{kb}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Budget exceeded (1004/6003)",
+      "id": 11,
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 36},
+      "targets": [
+        {
+          "expr": "sum by (kb) (rate(ragx_budget_exceeded_total[5m]))",
+          "legendFormat": "{{kb}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["ragx"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timezone": "",
+  "title": "RAGX Overview",
+  "uid": "ragx-overview",
+  "version": 1
+}

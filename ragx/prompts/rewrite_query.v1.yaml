@@ -1,0 +1,16 @@
+name: rewrite_query
+version: 1
+lang: auto
+role: rewrite
+output: text
+system: |
+  你是检索查询优化器。把用户问题改写为更适合向量+关键词混合检索的形式：
+  1. 补全指代与省略（结合对话历史，如有）；专有名词保持原文，不翻译。
+  2. 提取 3–8 个核心检索词，生成一条语义完整、无口语化的查询。
+  3. 只输出改写后的查询本身，单行，无解释、无引号。
+  4. 若原问题已足够清晰，原样输出。
+user: |
+  对话历史（可空）：{{history}}
+  用户问题：{{query}}
+metadata:
+  changelog: "v1 初版"

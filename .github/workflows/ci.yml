@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install lite dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[lite,dev]"
+
+      - name: Lint (ruff)
+        run: |
+          pip install ruff
+          ruff check ragx tests
+
+      - name: Type-check (mypy)
+        run: |
+          pip install mypy
+          mypy ragx/core ragx/spi ragx/llm ragx/retrieval ragx/api --ignore-missing-imports
+
+      - name: Unit + contract tests
+        run: |
+          pytest -q tests/unit tests/contract --ignore=tests/contract/test_graph_store_neo4j.py --ignore=tests/contract/test_vector_store_es.py --ignore=tests/contract/test_vector_store_qdrant.py
+
+      - name: Integration tests
+        run: |
+          pytest -q tests/integration
+
+  eval-impact:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.title, 'eval-impact')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[full,dev]"
+      - run: pytest -q tests/eval || true

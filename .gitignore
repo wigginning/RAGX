@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local/secret config
+.env
+*.local.yaml
+*.local.yml
+
+# Editor
+.vscode/
+.idea/
+
+# Local project memory / agent state
+.workbuddy/
