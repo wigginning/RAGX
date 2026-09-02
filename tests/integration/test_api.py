@@ -31,6 +31,13 @@ def test_openapi_generated(client) -> None:
     assert "/v1/chat/completions" in paths
 
 
+def test_app_wires_semantic_cache(client) -> None:
+    """LLM-02: create_app builds and exposes a SemanticCache for the router."""
+    from ragx.llm.semantic_cache import SemanticCache
+
+    assert isinstance(client.app.state.semantic_cache, SemanticCache)
+
+
 def test_health_shallow(client) -> None:
     resp = client.get("/v1/health")
     assert resp.status_code == 200

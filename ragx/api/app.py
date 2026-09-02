@@ -30,8 +30,11 @@ from ragx.ingestion.pipeline import IngestionPipeline
 from ragx.ingestion.queue_redis import make_queue
 from ragx.ingestion.store import MetadataStore
 from ragx.llm.prompts import PromptRegistry
+from ragx.llm.semantic_cache import SemanticCache
 from ragx.observability.metrics import get_metrics as _get_metrics
 from ragx.plugins import register_builtins
+from ragx.plugins.cache_memory import InMemoryExactCache
+from ragx.plugins.cache_redis import RedisCache
 from ragx.retrieval.assembler import ContextAssembler
 from ragx.retrieval.hybrid import GraphChunkResolver, HybridRetriever
 from ragx.retrieval.models import RetrievalConfig
@@ -41,9 +44,16 @@ from ragx.spi.registry import PluginRegistry
 
 
 def _build_llm_router(
-    settings: Settings, registry: PluginRegistry, kb_cfg: KBConfig
+    settings: Settings,
+    registry: PluginRegistry,
+    kb_cfg: KBConfig,
+    *,
+    cache: Any | None = None,
 ) -> Any | None:
     """Build the ResilientModelRouter from ``settings.llm`` (08-llm.md §8.3).
+
+    ``cache`` is the wired :class:`SemanticCache` (LLM-02); when provided the
+    router consults/stores it for ``GENERATE`` requests.
 
     Returns ``None`` when no LLM roles are configured — the service then runs
     in retrieval-only mode (chat/agentic degrade; search still works).
@@ -52,7 +62,9 @@ def _build_llm_router(
         return None
     from ragx.llm.router import ResilientRouter
 
-    router = ResilientRouter(settings.llm, registry, tenant_id="default")
+    router = ResilientRouter(
+        settings.llm, registry, tenant_id="default", cache=cache
+    )
     router.budget_caps = {"default": kb_cfg.budgets.daily_cost_limit_usd}
     return router
 
@@ -164,6 +176,24 @@ def create_app(
     graph_store = registry.resolve_from_kb("graph_store", kb_cfg, kb_id="default") \
         if kb_cfg.graph_store else None
 
+    # Semantic cache (LLM-02): exact tier (Redis for the full profile,
+    # in-memory for lite) + vector tier that reuses the retrieval store. The
+    # vector tier writes synthetic ``__semantic_cache__`` docs; the query path
+    # excludes them so retrieval is never polluted (see QueryService.query).
+    cache_cfg = settings.llm.cache
+    redis_url = getattr(settings.queue, "redis_url", None)
+    if redis_url:
+        exact_cache: Any = RedisCache(
+            {"url": redis_url, "namespace": cache_cfg.namespace, "ttl_s": cache_cfg.ttl_s}
+        )
+    else:
+        exact_cache = InMemoryExactCache(
+            {"namespace": cache_cfg.namespace, "ttl_s": cache_cfg.ttl_s}
+        )
+    semantic_cache = SemanticCache(
+        embedder, vector_store, exact_cache=exact_cache, config=cache_cfg
+    )
+
     retrieval_cfg = RetrievalConfig()
     resolver = GraphChunkResolver(vector_store) if graph_store is not None else None
     retriever = HybridRetriever(
@@ -176,7 +206,7 @@ def create_app(
     # Resolve the LLM (explicit param wins; otherwise build from settings.llm
     # so chat/agentic generation works in the deployed lite/full compose).
     if llm is None:
-        llm = _build_llm_router(settings, registry, kb_cfg)
+        llm = _build_llm_router(settings, registry, kb_cfg, cache=semantic_cache)
 
     # Standard-only service (agentic=None) — used both as the default query
     # path and as the AgenticOrchestrator's degradation fallback (§7.6).
@@ -209,6 +239,7 @@ def create_app(
     app.state.pipeline = pipeline
     app.state.audit_store = audit_store
     app.state.quota_store = quota_store
+    app.state.semantic_cache = semantic_cache
 
     app.include_router(search.router, prefix="/v1")
     app.include_router(ingest.router, prefix="/v1")

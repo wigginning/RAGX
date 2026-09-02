@@ -26,6 +26,10 @@ from ragx.retrieval.router import QueryRouter
 
 logger = logging.getLogger("ragx.retrieval.pipeline")
 
+#: Synthetic doc_id written by the semantic cache's vector tier
+#: (08-llm.md §8.5). Retrieved results must never surface these.
+CACHE_DOC_ID = "__semantic_cache__"
+
 _EMPTY_ANSWER = "知识库中未检索到相关内容。"
 
 
@@ -64,6 +68,23 @@ class QueryService:
         from ragx.observability.metrics import get_metrics
 
         return get_metrics()
+
+    @staticmethod
+    def _exclude_cache(filter_expr: FilterExpr | None) -> FilterExpr:
+        """Merge a ``doc_id != CACHE_DOC_ID`` exclusion into the retrieval filter.
+
+        The semantic cache's vector tier stores synthetic chunks under
+        ``__semantic_cache__``; they must never appear in query results
+        (08-llm.md §8.5). The exclusion is appended to the ``and`` group so it
+        always applies regardless of any caller-supplied filter.
+        """
+        exclusion = {"field": "doc_id", "op": "ne", "value": CACHE_DOC_ID}
+        if filter_expr is None:
+            return FilterExpr(and_=[exclusion])
+        if filter_expr.and_:
+            return FilterExpr(and_=list(filter_expr.and_) + [exclusion], or_=filter_expr.or_)
+        # Caller supplied only an ``or`` group → keep it, AND the exclusion.
+        return FilterExpr(and_=[exclusion], or_=filter_expr.or_)
 
     def _stage(self, kb: str, mode: str, stage: str, seconds: float) -> None:
         """Record one stage latency. Metrics must never break the query path."""
@@ -114,7 +135,7 @@ class QueryService:
             mode = "standard"
 
         retrieve_started = time.perf_counter()
-        hits = await self.retriever.retrieve(query, qvec, filter_expr)
+        hits = await self.retriever.retrieve(query, qvec, self._exclude_cache(filter_expr))
         self._stage(kb_id, mode, "retrieve", time.perf_counter() - retrieve_started)
 
         if not hits:
