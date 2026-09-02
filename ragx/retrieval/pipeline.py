@@ -21,7 +21,7 @@ from ragx.core.settings import KBConfig
 from ragx.llm.prompts import PromptRegistry
 from ragx.observability.rag_trace import RAGTraceCollector, RAGTraceStore, TraceLLMCall
 from ragx.retrieval.assembler import ContextAssembler
-from ragx.retrieval.hybrid import HybridRetriever
+from ragx.retrieval.hybrid import GraphChunkResolver, HybridRetriever
 from ragx.retrieval.models import RetrievalConfig
 from ragx.retrieval.router import QueryRouter
 
@@ -48,6 +48,7 @@ class QueryService:
         agentic: Any | None = None,
         metrics: Any | None = None,
         trace_store: RAGTraceStore | None = None,
+        registry: Any | None = None,
     ) -> None:
         self.retriever = retriever
         self.assembler = assembler
@@ -56,6 +57,12 @@ class QueryService:
         self.llm = llm
         self.kb_cfg = kb_cfg
         self.retrieval_cfg = retrieval_cfg
+        #: Plugin registry used to resolve a kb-scoped retriever at query time
+        #: (see ``_retriever_for``). ``None`` keeps the constructor-supplied
+        #: ``retriever`` (used by unit tests with fakes).
+        self.registry = registry
+        #: Per-kb retriever cache (one HybridRetriever per kb_id).
+        self._retriever_cache: dict[str, HybridRetriever] = {}
         #: AgenticOrchestrator (07-agentic.md §7.9). ``None`` → the agentic
         #: route degrades to standard (critical-path behaviour).
         self.agentic = agentic
@@ -67,6 +74,37 @@ class QueryService:
         self._trace_store = trace_store
 
     # -- observability helpers (10-observability.md §10.2) -----------------
+    def _retriever_for(self, kb_id: str) -> HybridRetriever:
+        """Return a retriever scoped to ``kb_id``.
+
+        The plugin registry caches each plugin instance per
+        ``(interface, name, kb_id)``, so the ingest pipeline and the query
+        path must resolve the *same* kb-scoped vector/graph store — otherwise
+        a lite in-memory store (per-kb instance) ingested under ``kb_e2e`` is
+        invisible to a retriever built from the ``"default"`` store. The
+        search route already resolves per kb; the query path now does too.
+
+        When no registry is injected we fall back to the constructor-supplied
+        ``retriever`` (unit tests with fakes).
+        """
+        if self.registry is None:
+            return self.retriever
+        cached = self._retriever_cache.get(kb_id)
+        if cached is not None:
+            return cached
+        store = self.registry.resolve_from_kb("vector_store", self.kb_cfg, kb_id=kb_id)
+        graph_store = (
+            self.registry.resolve_from_kb("graph_store", self.kb_cfg, kb_id=kb_id)
+            if self.kb_cfg.graph_store else None
+        )
+        resolver = GraphChunkResolver(store) if graph_store is not None else None
+        retr = HybridRetriever(
+            store, graph_store, resolver, self.retrieval_cfg,
+            kg_enabled=self.kb_cfg.flags.kg_enabled,
+        )
+        self._retriever_cache[kb_id] = retr
+        return retr
+
     def _metrics_obj(self) -> Any:
         if self._metrics is not None:
             return self._metrics
@@ -183,7 +221,7 @@ class QueryService:
             mode = "standard"
 
         retrieve_started = time.perf_counter()
-        hits = await self.retriever.retrieve(query, qvec, self._exclude_cache(filter_expr))
+        hits = await self._retriever_for(kb_id).retrieve(query, qvec, self._exclude_cache(filter_expr))
         self._stage(kb_id, mode, "retrieve", time.perf_counter() - retrieve_started)
         if collector is not None:
             collector.add_dense_hits(hits)

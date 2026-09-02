@@ -81,6 +81,7 @@ def _build_agentic_service(
     llm: Any,
     kb_cfg: KBConfig,
     trace_store: Any | None = None,
+    registry: Any | None = None,
 ) -> QueryService:
     """Wire the AgenticOrchestrator into a QueryService (07-agentic.md §7.9).
 
@@ -110,7 +111,7 @@ def _build_agentic_service(
     return QueryService(
         retriever, assembler, standard_service.router, prompts, llm,
         kb_cfg=kb_cfg, retrieval_cfg=standard_service.retrieval_cfg,
-        agentic=orchestrator, trace_store=trace_store,
+        agentic=orchestrator, trace_store=trace_store, registry=registry,
     )
 
 
@@ -222,14 +223,14 @@ def create_app(
     standard_service = QueryService(
         retriever, assembler, router, prompts, llm,
         kb_cfg=kb_cfg, retrieval_cfg=retrieval_cfg,
-        trace_store=trace_store,
+        trace_store=trace_store, registry=registry,
     )
 
     query_service = standard_service
     if kb_cfg.flags.agentic_enabled and llm is not None:
         query_service = _build_agentic_service(
             standard_service, retriever, assembler, embedder, graph_store,
-            prompts, llm, kb_cfg, trace_store=trace_store,
+            prompts, llm, kb_cfg, trace_store=trace_store, registry=registry,
         )
 
     pipeline = IngestionPipeline(registry, kb_cfg, db, llm=llm, prompts=prompts)
