@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import UTC
 
 import pytest
 from fastapi.testclient import TestClient
@@ -133,3 +134,64 @@ def test_jwt_through_middleware() -> None:
             headers={"Authorization": f"Bearer {token}"},
         )
     assert resp.status_code == 200
+
+
+def _seed_chunk(client, *, kb_id: str, chunk_id: str = "cx1", doc_id: str = "dx1") -> None:
+    import asyncio
+
+    from ragx.core.models import Chunk
+    chunk = Chunk(chunk_id=chunk_id, doc_id=doc_id, kb_id=kb_id,
+                  text="secret-content", token_count=1, atom_ids=[])
+    asyncio.run(client.app.state.db.save_chunks([chunk]))
+
+
+def _seed_task(client, *, kb_id: str, task_id: str = "tx1", doc_id: str = "dx1") -> None:
+    import asyncio
+    from datetime import datetime
+
+    from ragx.core.models import IngestTask
+    task = IngestTask(
+        task_id=task_id, doc_id=doc_id, kb_id=kb_id,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    asyncio.run(client.app.state.db.save_task(task))
+
+
+def test_get_task_cross_tenant_returns_403(client) -> None:
+    # key k1 is authorised only for kb_a; a task belonging to kb_b must 403.
+    _seed_task(client, kb_id="kb_b")
+    resp = client.get("/v1/tasks/tx1", headers={"Authorization": f"Bearer {_KEY}"})
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == 1003
+
+
+def test_list_chunks_cross_tenant_returns_403(client) -> None:
+    _seed_chunk(client, kb_id="kb_b")
+    resp = client.get(
+        "/v1/documents/dx1/chunks", headers={"Authorization": f"Bearer {_KEY}"}
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == 1003
+
+
+def test_put_chunk_cross_tenant_returns_403(client) -> None:
+    _seed_chunk(client, kb_id="kb_b")
+    resp = client.put(
+        "/v1/chunks/cx1",
+        json={"text": "hacked", "version": 1, "metadata": {}},
+        headers={"Authorization": f"Bearer {_KEY}"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == 1003
+
+
+def test_patch_chunk_cross_tenant_returns_403(client) -> None:
+    _seed_chunk(client, kb_id="kb_b")
+    resp = client.patch(
+        "/v1/chunks/cx1",
+        json={"metadata": {"x": 1}, "version": 1},
+        headers={"Authorization": f"Bearer {_KEY}"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == 1003

@@ -79,6 +79,7 @@ async def get_task(task_id: str, request: Request) -> dict:
         raise TaskNotFoundError(
             code=2003, message="task not found", details={"task_id": task_id}
         )
+    require_kb_access(request, task.kb_id)
     return {
         "task_id": task.task_id,
         "doc_id": task.doc_id,
@@ -95,6 +96,8 @@ async def get_task(task_id: str, request: Request) -> dict:
 @router.get("/documents/{doc_id}/chunks")
 async def list_chunks(doc_id: str, request: Request) -> dict:
     chunks = await request.app.state.db.get_chunks_by_doc(doc_id)
+    if chunks:
+        require_kb_access(request, chunks[0].kb_id)
     return {"chunks": [c.model_dump() for c in chunks]}
 
 
@@ -106,6 +109,7 @@ async def put_chunk(chunk_id: str, req: ChunkUpdateRequest, request: Request) ->
         raise ChunkNotFoundError(
             code=3001, message="chunk not found", details={"chunk_id": chunk_id}
         )
+    require_kb_access(request, chunk.kb_id)
     if chunk.version != req.version:
         raise EditConflictError(
             code=3002,
@@ -133,6 +137,7 @@ async def patch_chunk(chunk_id: str, req: ChunkPatchRequest, request: Request) -
         raise ChunkNotFoundError(
             code=3001, message="chunk not found", details={"chunk_id": chunk_id}
         )
+    require_kb_access(request, chunk.kb_id)
     if chunk.version != req.version:
         raise EditConflictError(
             code=3002,
