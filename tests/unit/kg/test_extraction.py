@@ -6,6 +6,8 @@ and extract_auto mode routing.
 
 from __future__ import annotations
 
+import pytest
+
 from ragx.core.exceptions import StructuredParseError
 from ragx.core.models import Chunk
 from ragx.core.settings import KGExtractionConfig
@@ -142,14 +144,46 @@ class TestExtractAuto:
         assert result is not None
         assert len(result.entities) == 1
 
-    async def test_small_mode_returns_empty_when_unavailable(self) -> None:
-        """Small models not installed → returns empty ExtractionResult (§5.2.5)."""
+    async def test_small_mode_uses_rule_based_fallback(self) -> None:
+        """extractor_mode='small' without GLiNER/REBEL installed must use the
+        rule-based fallback and extract entities locally (no LLM call, §5.2.5)."""
         llm = _MockLLM()
         cfg = KGExtractionConfig(extractor_mode="small")
-        chunk = _make_chunk()
+        chunk = _make_chunk("OpenAI is a company.")
         result = await extract_auto(chunk, llm, cfg)
         assert result is not None
-        assert result.entities == []
+        assert result.entities, "rule-based fallback should extract entities"
+        # Small mode never consults the LLM — it's a zero-API-cost path.
+        assert llm.call_count == 0
+
+    async def test_small_mode_selects_real_path_when_models_available(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When gliner + transformers are importable, small mode must take the
+        real GLiNER/REBEL path rather than the rule fallback (§5.2.5)."""
+        import ragx.kg.small_models as sm
+
+        monkeypatch.setattr(sm, "_gliner_available", lambda: True)
+        monkeypatch.setattr(sm, "_rebel_available", lambda: True)
+
+        sentinel = ExtractionResult(
+            entities=[
+                ExtractedEntity(name="REAL", type="ORG", description="x", confidence=0.9)
+            ],
+            relations=[],
+        )
+
+        async def _fake_real(chunk, cfg, *, trace_id=None):  # type: ignore[no-untyped-def]
+            return sentinel
+
+        monkeypatch.setattr(sm, "_gliner_rebel_extract", _fake_real)
+
+        llm = _MockLLM()
+        cfg = KGExtractionConfig(extractor_mode="small")
+        result = await extract_auto(_make_chunk("anything"), llm, cfg)
+        assert result is sentinel
+        assert result.entities[0].name == "REAL"
+        assert llm.call_count == 0
 
     async def test_hybrid_mode_falls_back_to_llm(self) -> None:
         """Hybrid with no small model → falls back to LLM extraction."""

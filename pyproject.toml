@@ -34,7 +34,7 @@ dependencies = [
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "pytest-cov>=5", "pytest-mock>=3",
        "fakeredis>=2.20"]
 tiktoken = ["tiktoken>=0.7"]
-full = ["ragx[sqlite,graph-nx,redis,es,qdrant,neo4j,minio,deepdoc,mineru,vlm,embed-st,rerank-bge]"]
+full = ["ragx[sqlite,graph-nx,redis,es,qdrant,neo4j,minio,deepdoc,mineru,vlm,embed-st,rerank-bge,kg-small]"]
 lite = ["ragx[sqlite,graph-nx]"]
 sqlite = []
 graph-nx = []
@@ -47,6 +47,12 @@ neo4j = ["neo4j>=5"]
 minio = ["aiobotocore>=2.13"]
 deepdoc = ["opencv-python>=4.9", "pdfplumber>=0.11", "pypdf>=4"]
 mineru = ["magic-pdf>=0.1", "pymupdf>=1.24"]
+# RX-KG-01 small mode real path (05-kg.md §5.2.5): GLiNER zero-shot NER +
+# REBEL relation extraction. Without this extra, extract_small() falls back to
+# the deterministic rule-based extractor (same ExtractionResult schema), so the
+# lite profile works out of the box; install ragx[kg-small] for the heavy ML
+# path. small_models.py documents this extra — keep the two in sync.
+kg-small = ["gliner>=0.2.27", "transformers>=4.40", "torch>=2.2"]
 # experimental (RX-PLG-06, 13-parsing.md §13.3.3): ASR + video parsers.
 # The lite install works without these; parse() surfaces
 # UnsupportedFormatError(2002) when they're absent.
