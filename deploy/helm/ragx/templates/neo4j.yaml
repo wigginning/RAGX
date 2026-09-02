@@ -1,0 +1,82 @@
+{{- if .Values.neo4j.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "ragx.fullname" . }}-neo4j
+  labels:
+    {{- include "ragx.labels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+spec:
+  serviceName: {{ include "ragx.fullname" . }}-neo4j
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ragx.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: neo4j
+  template:
+    metadata:
+      labels:
+        {{- include "ragx.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: neo4j
+    spec:
+      containers:
+        - name: neo4j
+          image: {{ .Values.neo4j.image | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.neo4j.ports.http }}
+            - name: bolt
+              containerPort: {{ .Values.neo4j.ports.bolt }}
+          env:
+            - name: _RAGX_NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ragx.secretName" . }}
+                  key: neo4j-password
+            - name: NEO4J_AUTH
+              value: "neo4j:$(_RAGX_NEO4J_PASSWORD)"
+          {{- with .Values.neo4j.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: bolt
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.neo4j.persistence.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ .Values.neo4j.persistence.size | quote }}
+        {{- if .Values.neo4j.persistence.storageClass }}
+        storageClassName: {{ .Values.neo4j.persistence.storageClass | quote }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ragx.fullname" . }}-neo4j
+  labels:
+    {{- include "ragx.labels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.neo4j.ports.http }}
+      targetPort: http
+    - name: bolt
+      port: {{ .Values.neo4j.ports.bolt }}
+      targetPort: bolt
+  selector:
+    {{- include "ragx.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+{{- end }}

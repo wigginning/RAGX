@@ -1,0 +1,21 @@
+# Patterns to ignore when building Helm packages.
+# (mirrors the upstream default .helmignore)
+.DS_Store
+.git/
+.gitignore
+*.tmproj
+.vscode/
+.idea/
+*.tgz
+*.bak
+*.tmp
+*.orig
+*.swp
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+htmlcov/

@@ -1,0 +1,270 @@
+# ---------------------------------------------------------------------------
+# RAGX Helm values — DEFAULT = "full" profile
+# ---------------------------------------------------------------------------
+# Every middleware component has its own `enabled` switch, so you can trim the
+# stack to exactly what you need. The `profile` key is documentation only; the
+# real switch is each component's `enabled`. Use `values-lite.yaml` to override
+# for a zero-middleware single-process deployment:
+#
+#   helm install ragx ./deploy/helm/ragx -f deploy/helm/ragx/values-lite.yaml
+#
+# Image note: the API/worker images are built by you from Dockerfile(.full) and
+# pushed to your registry. Set image.repository/tag accordingly. Middleware
+# images use the same pinned tags as deploy/compose/full.yml.
+# ---------------------------------------------------------------------------
+
+# profile is informational; see individual *.enabled toggles below.
+profile: full
+
+nameOverride: ""
+fullnameOverride: ""
+
+namespace: ""  # if set, templates add `namespace:` to namespaced objects
+
+image:
+  # RAGX API/worker image — build from Dockerfile(.full) and push to your repo.
+  repository: ragx
+  tag: "full"            # full-profile build (Dockerfile.full)
+  pullPolicy: IfNotPresent
+
+# Default resource requests/limits applied to API/worker if not overridden.
+resources: {}
+  # limits:
+  #   cpu: "1"
+  #   memory: 1Gi
+  # requests:
+  #   cpu: "250m"
+  #   memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+# ---------------------------------------------------------------------------
+# API (FastAPI / uvicorn on :8000) — always on
+# ---------------------------------------------------------------------------
+api:
+  enabled: true
+  replicaCount: 1
+  port: 8000
+  # Extra env (no service-dependency). Middleware connection env is injected by
+  # the chart based on each component's `enabled` flag (see templates).
+  env:
+    RAGX_PROFILE: full
+    RAGX_DATA_DIR: /data
+    RAGX_QUEUE.STREAM_PREFIX: "ragx:ingest"
+    RAGX_QUEUE.CONSUMER_GROUP: ragx-workers
+    RAGX_QUEUE.BLOCK_MS: "2000"
+    RAGX_QUEUE.WORKER_CONCURRENCY: "4"
+    RAGX_QUEUE.AUTO_CONSUME: "true"
+    RAGX_LLM.PROVIDERS.OPENAI_COMPAT.MODEL: ragx-mock
+    RAGX_LLM.ROLES.GENERATE.PRIMARY.PROVIDER: openai_compat
+    RAGX_LLM.ROLES.GENERATE.PRIMARY.MODEL: ragx-mock
+    RAGX_LLM.ROLES.GENERATE.MAX_RETRIES: "1"
+    RAGX_LLM.ROLES.GENERATE.TIMEOUT: "30"
+    RAGX_LLM.ROLES.EXTRACT.PRIMARY.PROVIDER: openai_compat
+    RAGX_LLM.ROLES.EXTRACT.PRIMARY.MODEL: ragx-mock
+    RAGX_LLM.ROLES.EXTRACT.MAX_RETRIES: "1"
+    RAGX_LLM.ROLES.EXTRACT.TIMEOUT: "30"
+    RAGX_SECURITY.RATE_LIMIT_RPS: "20"
+    RAGX_SECURITY.RATE_LIMIT_BURST: "40"
+  resources: {}
+  # When false, no ServiceAccount is created/referenced.
+  serviceAccount:
+    create: false
+    name: ""
+  # Ingress for the API (off by default; see `ingress` block).
+  service:
+    type: ClusterIP
+    port: 8000
+    annotations: {}
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+  # Liveness/readiness probe defaults (HTTP GET /v1/health on the container port).
+  probes:
+    liveness:
+      enabled: true
+      path: /v1/health
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    readiness:
+      enabled: true
+      path: /v1/health
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+
+# ---------------------------------------------------------------------------
+# Worker (optional dedicated ingestion consumer) — off by default
+# ---------------------------------------------------------------------------
+worker:
+  enabled: false
+  replicaCount: 1
+  resources: {}
+  # Worker shares the API image but runs `python -m ragx.ingestion.worker`.
+  env: {}
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+# ---------------------------------------------------------------------------
+# Middleware — each independently toggled. Connection env is injected into the
+# API pod automatically when enabled.
+# ---------------------------------------------------------------------------
+elasticsearch:
+  enabled: true
+  image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+  port: 9200
+  # single-node discovery (matches compose)
+  env:
+    discovery.type: single-node
+    xpack.security.enabled: "false"
+    xpack.security.http.ssl.enabled: "false"
+    ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: 2Gi
+    limits:
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+neo4j:
+  enabled: true
+  image: neo4j:5.26
+  ports:
+    http: 7474
+    bolt: 7687
+  resources:
+    limits:
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+minio:
+  enabled: true
+  image: minio/minio:latest
+  port: 9000
+  consolePort: 9001
+  bucket: ragx
+  resources: {}
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+postgresql:
+  enabled: true
+  image: postgres:16-alpine
+  port: 5432
+  database: ragx
+  user: ragx
+  resources: {}
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+  port: 6379
+  resources: {}
+  persistence:
+    enabled: false   # cache/queue are ephemeral-friendly; enable for durability
+    size: 5Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+# Minimal OpenAI-compatible mock endpoint so the upload->query->citations flow
+# runs with zero external credentials. Disable and point RAGX_LLM_* at your own
+# endpoint for real use (override api.env in your values overlay).
+mockLlm:
+  enabled: true
+  image: python:3.12-slim
+  port: 8001
+  resources: {}
+  replicaCount: 1
+
+# ---------------------------------------------------------------------------
+# Observability
+# ---------------------------------------------------------------------------
+prometheus:
+  enabled: true
+  image: prom/prometheus:v2.55.1
+  port: 9090
+  resources: {}
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+grafana:
+  enabled: true
+  image: grafana/grafana:11.2.2
+  port: 3000
+  resources: {}
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+# ---------------------------------------------------------------------------
+# Secrets (demo defaults). For production, do NOT commit real secrets — supply
+# an externally-managed Secret and set `secrets.externalSecretName`.
+# ---------------------------------------------------------------------------
+secrets:
+  # When non-empty, the chart will NOT create a Secret and will instead use this
+  # existing Secret's keys (neo4j-password, minio-access-key, minio-secret-key,
+  # postgres-password, grafana-admin-password).
+  externalSecretName: ""
+  neo4jPassword: ragx12345
+  minioAccessKey: ragx
+  minioSecretKey: ragx12345
+  postgresPassword: ragx12345
+  grafanaAdminPassword: ragx12345
+
+# ---------------------------------------------------------------------------
+# Ingress (off by default)
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: ragx.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

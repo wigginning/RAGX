@@ -1,0 +1,59 @@
+RAGX ({{ .Chart.AppVersion }}) has been deployed via the "{{ .Chart.Name }}" chart (v{{ .Chart.Version }}).
+
+Release:    {{ .Release.Name }}
+Namespace:  {{ .Release.Namespace }}
+Profile:    {{ .Values.profile }}   (each middleware toggled by its *.enabled flag)
+
+== API ==
+{{- if .Values.api.enabled }}
+  Service:   {{ include "ragx.fullname" . }}:{{ .Values.api.service.port }}
+{{- if .Values.ingress.enabled }}
+  Ingress:   http{{ if .Values.ingress.tls }}s{{ end }}://{{ (index .Values.ingress.hosts 0).host }}
+{{- else }}
+  Port-forward for local access:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "ragx.fullname" . }} 18000:{{ .Values.api.service.port }}
+    # then open http://localhost:18000/v1/health
+{{- end }}
+{{- else }}
+  (api disabled)
+{{- end }}
+
+== Middleware (enabled) ==
+{{- if .Values.elasticsearch.enabled }}
+  * Elasticsearch        {{ .Values.elasticsearch.image }}   -> {{ include "ragx.fullname" . }}-elasticsearch:{{ .Values.elasticsearch.port }}
+{{- end }}
+{{- if .Values.neo4j.enabled }}
+  * Neo4j                {{ .Values.neo4j.image }}   -> {{ include "ragx.fullname" . }}-neo4j:{{ .Values.neo4j.ports.bolt }}
+{{- end }}
+{{- if .Values.minio.enabled }}
+  * MinIO                {{ .Values.minio.image }}   -> {{ include "ragx.fullname" . }}-minio:{{ .Values.minio.port }} (console :{{ .Values.minio.consolePort }})
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+  * PostgreSQL           {{ .Values.postgresql.image }}   -> {{ include "ragx.fullname" . }}-postgresql:{{ .Values.postgresql.port }} (db={{ .Values.postgresql.database }})
+{{- end }}
+{{- if .Values.redis.enabled }}
+  * Redis                {{ .Values.redis.image }}   -> {{ include "ragx.fullname" . }}-redis:{{ .Values.redis.port }}
+{{- end }}
+{{- if .Values.mockLlm.enabled }}
+  * Mock LLM endpoint   {{ .Values.mockLlm.image }}   -> {{ include "ragx.fullname" . }}-mock-llm:{{ .Values.mockLlm.port }} (auto-wired into RAGX_LLM_*)
+{{- end }}
+{{- if .Values.prometheus.enabled }}
+  * Prometheus           {{ .Values.prometheus.image }}   -> {{ include "ragx.fullname" . }}-prometheus:{{ .Values.prometheus.port }}
+{{- end }}
+{{- if .Values.grafana.enabled }}
+  * Grafana              {{ .Values.grafana.image }}   -> {{ include "ragx.fullname" . }}-grafana:{{ .Values.grafana.port }} (user: ragx)
+{{- end }}
+
+== Quick smoke (kind / kubectl) ==
+  # build & load images first (kind load docker-image ragx:full), then:
+  helm install ragx ./deploy/helm/ragx -n ragx --create-namespace
+  kubectl -n ragx wait --for=condition=Ready pod -l app.kubernetes.io/instance=ragx --timeout=300s
+  kubectl -n ragx port-forward svc/ragx 18000:8000 &
+  curl -fsS http://localhost:18000/v1/health
+
+== Notes ==
+  * For lite (zero-middleware) deploy: add -f deploy/helm/ragx/values-lite.yaml
+  * Secrets use chart-managed defaults; for production set
+    secrets.externalSecretName to a pre-created Secret
+    (keys: neo4j-password, minio-access-key, minio-secret-key,
+    postgres-password, grafana-admin-password).
