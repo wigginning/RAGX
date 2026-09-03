@@ -12,10 +12,17 @@ in `docs/TASKS.md` §5.1.
 
 ---
 
-## [Unreleased] — targeting `v1.0.0`
+## [1.0.0] - 2026-09-03
 
 Exit criteria (`docs/TASKS.md` §5.1): `F(API-03 多租户审计, INF-03 Helm)` +
 MCP 完善 + E2E 全套 + 文档齐备, with L1–L4 green and a passed security review.
+
+> **Release note — L4 status**: the evaluation gate is fully wired and
+> verified offline (`make eval-local`; ragas backend runs nightly with
+> `ragx[eval]` + a judge model + the seeded `kb_test` corpus). Real L4
+> scores were not produced in this release because those three pieces
+> require network/credentials; `tests/eval/baseline.json` remains the seed
+> baseline until the first nightly run refreshes it via `make eval-update`.
 
 ### Added
 

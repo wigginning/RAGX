@@ -168,7 +168,7 @@ RAGX follows [SemVer](https://semver.org/). The SPI is frozen at v1.0.0; earlier
 | `0.2.0` | production | Redis Streams + semantic cache + full compose (ES/Neo4j/MinIO/PG) + auth/audit |
 | `0.3.0` | multimodal + graph | DeepDoc/MinerU parsers + VLM cost gates + KG dual-level retrieval + 14 prompts |
 | `0.4.0` | agentic + eval | Three-tier query router + LangGraph orchestrator + RAGAS/DeepEval harness |
-| `1.0.0` | enterprise | MCP + Helm + multi-tenant + audit + complete E2E |
+| `1.0.0` | released 2026-09-03 | MCP (SSE+stdio, wired backend) · Helm · multi-tenant/audit (security-reviewed) · in-process E2E · L4 eval gate (`make eval`; ragas runs nightly) |
 
 ## Design deviations (recorded per `docs/TASKS.md` §6)
 
