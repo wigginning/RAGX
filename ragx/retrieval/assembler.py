@@ -49,6 +49,6 @@ class ContextAssembler:
                 )
                 used += tc
 
-        fill(db, pool_db)
-        fill(g, pool_g)  # overflow from the first pool is reclaimed here
+        fill(db, int(pool_db))
+        fill(g, int(pool_g))  # overflow from the first pool is reclaimed here
         return "\n\n".join(parts), citations

@@ -110,11 +110,24 @@ class PluginRegistry:
             )
         wrapped: Factory
         if isinstance(factory, type):
-            wrapped = lambda cfg, cls=factory: cls(cfg)  # noqa: E731
+            cls: type = factory
+
+            def _from_class(cfg: dict[str, Any]) -> Any:
+                return cls(cfg)
+
+            wrapped = _from_class
         elif _takes_config(factory):
-            wrapped = factory
+            # _takes_config guarantees a single-config-arg callable -> Factory
+            wrapped = factory  # type: ignore[assignment]
         else:
-            wrapped = lambda cfg, f=factory: f()  # noqa: E731
+            # else-branch: factory is a zero-arg callable (not a class and not
+            # config-taking); mypy can't narrow the union past _takes_config.
+            noarg: Callable[[], Any] = factory  # type: ignore[assignment]
+
+            def _from_noarg(cfg: dict[str, Any]) -> Any:
+                return noarg()
+
+            wrapped = _from_noarg
         self._factories[(key, name)] = wrapped
 
     def unregister(self, interface: str | type, name: str) -> bool:

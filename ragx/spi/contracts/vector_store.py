@@ -22,7 +22,8 @@ class VectorStoreContract(ContractBase):
     async def make(self) -> VectorStore:
         return await self.make_store()
 
-    async def make_store(self) -> VectorStore: ...  # pragma: no cover
+    async def make_store(self) -> VectorStore:  # pragma: no cover
+        raise NotImplementedError
 
     # -- helpers -----------------------------------------------------------
     @classmethod

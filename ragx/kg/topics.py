@@ -17,7 +17,7 @@ from typing import Any
 from ragx.core.ids import new_id
 from ragx.core.models import Entity, Relation, TopicSummary
 from ragx.core.roles import LLMRole
-from ragx.spi.interfaces import ChatRequest
+from ragx.spi.interfaces import ChatMessage, ChatRequest
 
 logger = logging.getLogger("ragx.kg.topics")
 
@@ -171,7 +171,7 @@ async def _generate_summary(
                 f"{summary_text}"
             )
             req = ChatRequest(
-                messages=[{"role": "user", "content": prompt}],
+                messages=[ChatMessage(role="user", content=prompt)],
                 role=LLMRole.SYNTHESIZE,
                 temperature=0.0,
             )

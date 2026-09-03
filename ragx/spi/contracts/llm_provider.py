@@ -25,7 +25,8 @@ class LLMProviderContract(ContractBase):
     async def make(self) -> LLMProvider:
         return await self.make_provider()
 
-    async def make_provider(self) -> LLMProvider: ...  # pragma: no cover
+    async def make_provider(self) -> LLMProvider:  # pragma: no cover
+        raise NotImplementedError
 
     @staticmethod
     def _req(text: str = "用一句话解释 RAGX 的分层架构。", *, json_mode: bool = False) -> ChatRequest:

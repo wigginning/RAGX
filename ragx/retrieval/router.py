@@ -7,7 +7,7 @@ explicit ``agentic`` override without the flag degrades to standard.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from ragx.core.models import RequestOverride
 from ragx.core.settings import KBConfig
@@ -21,7 +21,7 @@ class _Heuristics:
 
 
 class QueryRouter:
-    def __init__(self, cache: object | None = None, heuristics: _Heuristics | None = None) -> None:
+    def __init__(self, cache: Any | None = None, heuristics: _Heuristics | None = None) -> None:
         self.cache = cache
         self.heuristics = heuristics or _Heuristics()
 

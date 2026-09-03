@@ -19,7 +19,8 @@ class GraphStoreContract(ContractBase):
     async def make(self) -> GraphStore:
         return await self.make_graph_store()
 
-    async def make_graph_store(self) -> GraphStore: ...  # pragma: no cover
+    async def make_graph_store(self) -> GraphStore:  # pragma: no cover
+        raise NotImplementedError
 
     # -- helpers -----------------------------------------------------------
     @staticmethod

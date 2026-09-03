@@ -122,12 +122,19 @@ class QueryService:
         always applies regardless of any caller-supplied filter.
         """
         exclusion = {"field": "doc_id", "op": "ne", "value": CACHE_DOC_ID}
+        # FilterExpr declares `and_`/`or_` with pydantic aliases "and"/"or" and
+        # populate_by_name=True; mypy's pydantic plugin mis-reads keyword-aliased
+        # fields here, so the constructor calls below are runtime-valid.
         if filter_expr is None:
-            return FilterExpr(and_=[exclusion])
+            return FilterExpr(and_=[exclusion])  # type: ignore[call-arg]
         if filter_expr.and_:
-            return FilterExpr(and_=list(filter_expr.and_) + [exclusion], or_=filter_expr.or_)
+            return FilterExpr(  # type: ignore[call-arg]
+                and_=list(filter_expr.and_) + [exclusion], or_=filter_expr.or_
+            )
         # Caller supplied only an ``or`` group → keep it, AND the exclusion.
-        return FilterExpr(and_=[exclusion], or_=filter_expr.or_)
+        return FilterExpr(  # type: ignore[call-arg]
+            and_=[exclusion], or_=filter_expr.or_
+        )
 
     def _stage(self, kb: str, mode: str, stage: str, seconds: float) -> None:
         """Record one stage latency. Metrics must never break the query path."""

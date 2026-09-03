@@ -14,7 +14,8 @@ class EmbedderContract(ContractBase):
     async def make(self) -> Embedder:
         return await self.make_embedder()
 
-    async def make_embedder(self) -> Embedder: ...  # pragma: no cover
+    async def make_embedder(self) -> Embedder:  # pragma: no cover
+        raise NotImplementedError
 
     @pytest.mark.contract
     async def test_capabilities_declared(self) -> None:

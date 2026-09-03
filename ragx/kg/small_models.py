@@ -179,6 +179,7 @@ async def _gliner_rebel_extract(
             return_tensors="pt",
             truncation=True,
         )
+        assert re_model is not None  # REBEL model loaded/assigned above
         with torch.no_grad():
             outputs = re_model.generate(**inputs, max_length=256)
         decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]

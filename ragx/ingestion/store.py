@@ -412,6 +412,8 @@ class MetadataStore:
             (kb_id, day_start),
         )
         row = await cur.fetchone()
+        if row is None:
+            return 0.0
         return float(row["total"])
 
     # -- kbs ----------------------------------------------------------------

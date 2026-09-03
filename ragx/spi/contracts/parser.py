@@ -17,7 +17,8 @@ class ParserContract(ContractBase):
     async def make(self) -> Parser:
         return await self.make_parser()
 
-    async def make_parser(self) -> Parser: ...  # pragma: no cover - abstract
+    async def make_parser(self) -> Parser:  # pragma: no cover - abstract
+        raise NotImplementedError
 
     # -- helpers -----------------------------------------------------------
     def _doc(self, content: str, mimetype: str = "text/markdown") -> RawDocument:
@@ -105,5 +106,5 @@ class ParserContract(ContractBase):
             pytest.skip("parser claims support for every probed format")
         with pytest.raises((ParseError, UnsupportedFormatError)):
             await parser.parse(
-                self._doc(b"\x00\x01\x02", unsupported[0]), options=ParseOptions()
+                self._doc("\x00\x01\x02", unsupported[0]), options=ParseOptions()
             )

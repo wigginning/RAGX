@@ -24,6 +24,7 @@ async def submit_ingest(
 
     existing = await db.find_doc_by_hash(raw.kb_id, raw.doc_hash)
     if existing is not None:
+        assert existing.doc_id is not None, "hash-matched doc must carry an id"
         existing_task = await db.get_task_by_doc(existing.doc_id)
         raise DuplicateDocumentError(
             code=2004,

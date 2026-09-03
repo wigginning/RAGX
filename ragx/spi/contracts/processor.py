@@ -13,7 +13,8 @@ class ProcessorContract(ContractBase):
     async def make(self) -> Processor:
         return await self.make_processor()
 
-    async def make_processor(self) -> Processor: ...  # pragma: no cover
+    async def make_processor(self) -> Processor:  # pragma: no cover
+        raise NotImplementedError
 
     @staticmethod
     def _atoms(doc_id: str = "doc_t") -> list[Atom]:

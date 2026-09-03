@@ -13,7 +13,8 @@ class RerankerContract(ContractBase):
     async def make(self) -> Reranker:
         return await self.make_reranker()
 
-    async def make_reranker(self) -> Reranker: ...  # pragma: no cover
+    async def make_reranker(self) -> Reranker:  # pragma: no cover
+        raise NotImplementedError
 
     @staticmethod
     def _chunks() -> list[Chunk]:

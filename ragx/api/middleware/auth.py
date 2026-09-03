@@ -35,7 +35,7 @@ from ragx.core.settings import SecurityConfig
 #: kb_acl semantics: an empty/missing ACL is treated as "unrestricted" for v1
 #: convenience (a key created without an explicit allow-list can reach any kb);
 #: a non-empty list is an allow-list (09-api.md §9.2.1).
-_UNRESTRICTED = (None, [], ())
+_UNRESTRICTED: tuple = (None, [], ())
 
 
 @dataclass
@@ -209,9 +209,10 @@ def require_kb_access(request: Request, kb_id: str) -> None:
     auth: AuthContext | None = getattr(request.state, "auth", None)
     if auth is None or not auth.authenticated:
         return
-    if auth.kb_acl in _UNRESTRICTED:
+    acl = auth.kb_acl
+    if not acl:  # None / empty allow-list => unrestricted (v1 semantics)
         return
-    if kb_id not in auth.kb_acl:
+    if kb_id not in acl:
         raise AuthError(
             "kb not authorised for this key",
             code=1003,

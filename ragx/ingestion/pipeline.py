@@ -15,7 +15,7 @@ import random
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel
 
@@ -199,7 +199,9 @@ class IngestionPipeline:
             task, TaskStatus.PROCESSING,
             lambda t: self._do_process(t, atoms), self.db, self.retry,
         )
-        return produced  # descriptions are not persisted in the sync path
+        # sync path: _do_process returns ids/descriptions that are not
+        # persisted; keep the declared AtomDescription contract.
+        return cast(list[AtomDescription], produced)
 
     async def _do_process(self, task: IngestTask, atoms: list[Atom]) -> list[str]:
         small = self.registry.resolve_from_kb("processor", self.kb_cfg, kb_id=task.kb_id) \

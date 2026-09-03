@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import field
-from typing import Any, cast
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -80,7 +80,7 @@ class ParallelExecutor:
                 answers.append("[NO DATA]")
                 logger.warning("task %s failed: %s", task.task_id, result)
             else:
-                sub = cast(SubAnswer, result)
+                sub = result
                 task.sub_answer = sub.answer
                 task.citations = sub.citations
                 task.status = "done"

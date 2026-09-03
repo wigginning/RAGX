@@ -34,7 +34,7 @@ from ragx.core.roles import LLMRole
 from ragx.core.settings import ParseOptions
 
 #: Entry point group per interface (01-spi.md §1.1).
-ENTRY_POINT_GROUPS: dict[str, type] = {
+ENTRY_POINT_GROUPS: dict[str, str] = {  # group name -> entry-point group string
     "ragx.parsers": "parser",
     "ragx.processors": "processor",
     "ragx.embedders": "embedder",
