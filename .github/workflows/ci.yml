@@ -30,14 +30,14 @@ jobs:
       - name: Lint (ruff)
         run: |
           pip install ruff
-          ruff check ragx tests
+          ruff check ragx tests scripts
 
       - name: Type-check (mypy)
         run: |
           pip install mypy
           mypy ragx/core ragx/spi ragx/llm ragx/retrieval ragx/api --ignore-missing-imports
 
-      - name: Unit + contract tests
+      - name: Unit + contract tests (lite)
         run: |
           pytest -q tests/unit tests/contract --ignore=tests/contract/test_graph_store_neo4j.py --ignore=tests/contract/test_vector_store_es.py --ignore=tests/contract/test_vector_store_qdrant.py
 
@@ -45,13 +45,51 @@ jobs:
         run: |
           pytest -q tests/integration
 
-  eval-impact:
+      - name: End-to-end journey tests (in-process)
+        run: |
+          pytest -q tests/e2e
+
+  coverage:
+    # L1 gate (docs/TASKS.md §4): core coverage >= 80%. Threshold and the
+    # ragx/plugins omit live in pyproject [tool.coverage.*]; ragx/plugins
+    # holds optional third-party adapters that lite CI cannot execute.
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.title, 'eval-impact')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[full,dev]"
-      - run: pytest -q tests/eval || true
+          cache: pip
+      - name: Install lite dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[lite,dev]"
+      - name: Coverage gate
+        run: |
+          pytest -q --cov=ragx --cov-report=term-missing --cov-fail-under=80 \
+            tests/unit tests/contract tests/integration tests/e2e \
+            --ignore=tests/contract/test_graph_store_neo4j.py \
+            --ignore=tests/contract/test_vector_store_es.py \
+            --ignore=tests/contract/test_vector_store_qdrant.py
+
+  eval-impact:
+    # Runs on PRs that touch prompts / models / retrieval behaviour
+    # (title/body label `eval-impact`). A real ragas gate needs a judge model,
+    # a seeded eval corpus and network, which PR CI does not have — that gate
+    # runs in the nightly workflow with repo secrets. Here we exercise the
+    # offline runner so wiring regressions are caught early; a missing corpus
+    # makes the offline scores 0 vs baseline, so this step is informational
+    # (see docs/benchmarks.md §复现命令).
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.title, 'eval-impact') || contains(github.event.pull_request.body, 'eval-impact')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install lite dependencies
+        run: pip install -e ".[lite,dev]"
+      - name: L4 offline eval smoke (informational)
+        run: |
+          python scripts/eval_l4.py --backend local \
+            || echo "offline gate reports FAIL while the eval corpus is not seeded in CI — expected; the real L4 gate runs nightly with secrets."

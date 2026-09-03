@@ -121,7 +121,21 @@ addopts = "-ra"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["__pycache__", "build", "dist", "scripts", "deploy"]
+extend-exclude = ["__pycache__", "build", "dist", "deploy"]
+
+[tool.coverage.run]
+# L1 gate (docs/TASKS.md §4): core coverage >= 80%. `ragx/plugins` is omitted
+# because it holds optional third-party adapters (ES/Qdrant/Neo4j/MinIO, heavy
+# parsers/embedders) that the lite CI cannot execute without those services;
+# plugin behaviour is instead exercised by the contract suites when services
+# are present. See README "Design deviations".
+source = ["ragx"]
+omit = ["*/ragx/plugins/*", "*/ragx/mcp/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
 
 [tool.ruff.lint]
 select = [

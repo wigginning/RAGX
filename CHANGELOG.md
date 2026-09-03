@@ -41,6 +41,14 @@ MCP 完善 + E2E 全套 + 文档齐备, with L1–L4 green and a passed security
   install extra (ragas/deepeval/datasets), a `build_evaluator()` factory, and
   `docs/benchmarks.md`. The gate itself (run_eval, baseline comparison,
   citation_accuracy) existed but had no way to be installed or invoked.
+- **CI aligned with the L1–L4 gates** (`…`) — GitHub Actions now run the
+  in-process E2E suite, enforce `ruff` over `scripts/`, and gate core
+  coverage at 80% (`pytest --cov=ragx --cov-fail-under=80`; `ragx/plugins`
+  omitted — see README design deviation #6). New `nightly.yml` runs the full
+  lite suite + coverage nightly and the L4 ragas gate when a judge model
+  secret is configured. The obsolete `eval-impact` step (it ran
+  `pytest tests/eval`, which collected nothing) now exercises the offline
+  L4 runner.
 
 ### Fixed
 
