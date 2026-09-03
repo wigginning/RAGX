@@ -127,15 +127,19 @@ knowledge bases — same tenant isolation as the REST API.
 # install everything
 pip install -e ".[lite,dev]"
 
-# run tests (342 passed / 31 skipped; skips are ES/Qdrant/Neo4j/Milvus contract suites)
-pytest -q tests/unit tests/contract tests/integration
+# run tests (359 passed / 31 skipped; skips are ES/Qdrant/Neo4j/Milvus contract suites)
+pytest -q tests/unit tests/contract tests/integration tests/e2e
 
-# end-to-end journey (upload → ingest → search → chat with citations, in-process)
-pytest -q tests/e2e        # 8 passed
+# coverage gate (L1, docs/TASKS.md §4; threshold + omit in pyproject [tool.coverage.*])
+pytest -q --cov=ragx --cov-fail-under=80 tests/unit tests/contract tests/integration tests/e2e
 
 # lint + type-check
-ruff check ragx tests
-mypy ragx/core ragx/spi ragx/llm ragx/retrieval
+ruff check ragx tests scripts
+mypy ragx/core ragx/spi ragx/llm ragx/retrieval ragx/api
+
+# L4 evaluation gate (docs/TASKS.md §4) — offline smoke, or ragas with ragx[eval]
+make eval-local
+make eval            # needs ragx[eval] + judge model + seeded eval corpus
 
 # smoke test the lite stack (upload → query → citations end-to-end)
 python scripts/smoke_lite.py

@@ -15,6 +15,7 @@ import pytest
 
 from ragx.core.models import Citation, QueryResult
 from ragx.observability.eval.base import (
+    ALL_METRICS,
     EvalCase,
     EvalResult,
 )
@@ -307,3 +308,28 @@ class TestBuildEvaluator:
         assert getattr(evaluator, "_ragas", None) is None  # lib absent -> degraded
         evaluator = build_evaluator("deepeval", judge_model=None)
         assert getattr(evaluator, "_deepeval", None) is None
+
+
+class TestGoldenSetConsistency:
+    """Guard rails on the repo-owned eval data (tests/eval/).
+
+    The gate compares per-question scores against baseline.json, so the two
+    files must stay in sync (same questions, same order) and baseline metrics
+    must belong to the catalogue (10-observability.md §10.4.2) — otherwise a
+    silent edit to one of them makes the L4 gate compare against nothing.
+    """
+
+    def test_baseline_questions_match_eval_set(self) -> None:
+        cases = load_eval_cases()
+        baseline = load_baseline()
+        assert cases, "eval set must not be empty"
+        assert [c.question for c in cases] == [b["question"] for b in baseline], (
+            "tests/eval/baseline.json questions must equal "
+            "tests/eval/ragx_eval.jsonl questions, in order"
+        )
+
+    def test_baseline_metrics_belong_to_catalogue(self) -> None:
+        baseline = load_baseline()
+        for row in baseline:
+            extra = set(row) - {"question"} - set(ALL_METRICS)
+            assert not extra, f"baseline row has unknown metrics: {extra}"
