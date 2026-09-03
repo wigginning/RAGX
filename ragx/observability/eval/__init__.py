@@ -10,13 +10,19 @@ The citation_accuracy metric is self-contained (no heavy deps).
 
 from ragx.observability.eval.base import EvalCase, EvalResult, Evaluator
 from ragx.observability.eval.citation_accuracy import compute_citation_accuracy
-from ragx.observability.eval.run_eval import EvalReport, compare_baseline, run_eval
+from ragx.observability.eval.run_eval import (
+    EvalReport,
+    build_evaluator,
+    compare_baseline,
+    run_eval,
+)
 
 __all__ = [
     "EvalCase",
     "EvalReport",
     "EvalResult",
     "Evaluator",
+    "build_evaluator",
     "compare_baseline",
     "compute_citation_accuracy",
     "run_eval",

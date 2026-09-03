@@ -228,3 +228,29 @@ class LocalEvaluator:
         else:
             metrics["answer_correctness"] = 0.0
         return EvalResult(question=case.question, metrics=metrics)
+
+
+def build_evaluator(
+    backend: str = "local",
+    judge_model: str | None = None,
+) -> Evaluator:
+    """Factory for the configured evaluation backend (§10.4.2).
+
+    ``local`` (default) needs no external libraries — it computes the
+    self-implemented ``citation_accuracy`` plus an ``answer_correctness``
+    heuristic, so the L4 loop can run offline. ``ragas`` / ``deepeval``
+    lazy-import their libraries; when the library is missing their metrics
+    degrade to NaN and only ``citation_accuracy`` is produced (the runner
+    then warns instead of silently passing).
+    """
+    if backend == "local":
+        return LocalEvaluator()
+    if backend == "ragas":
+        from ragx.observability.eval.ragas_eval import RagasEvaluator
+
+        return RagasEvaluator(llm=judge_model)
+    if backend == "deepeval":
+        from ragx.observability.eval.deepeval_eval import DeepEvalEvaluator
+
+        return DeepEvalEvaluator(llm=judge_model)
+    raise ValueError(f"unknown eval backend: {backend}")

@@ -21,6 +21,7 @@ from ragx.observability.eval.base import (
 from ragx.observability.eval.citation_accuracy import compute_citation_accuracy
 from ragx.observability.eval.run_eval import (
     LocalEvaluator,
+    build_evaluator,
     compare_baseline,
     load_baseline,
     load_eval_cases,
@@ -290,3 +291,19 @@ class TestRunEval:
         assert summary["cases"] == 3
         assert "citation_accuracy" in summary["metrics"]
         assert "passed" in summary
+
+
+class TestBuildEvaluator:
+    def test_local_backend(self) -> None:
+        assert isinstance(build_evaluator("local"), LocalEvaluator)
+
+    def test_unknown_backend_raises(self) -> None:
+        with pytest.raises(ValueError):
+            build_evaluator("nope")
+
+    def test_ragas_and_deepeval_lazy_import(self) -> None:
+        """Building ragas/deepeval must not crash without the libs installed."""
+        evaluator = build_evaluator("ragas", judge_model=None)
+        assert getattr(evaluator, "_ragas", None) is None  # lib absent -> degraded
+        evaluator = build_evaluator("deepeval", judge_model=None)
+        assert getattr(evaluator, "_deepeval", None) is None

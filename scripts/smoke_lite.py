@@ -46,9 +46,9 @@ def _request(
             body = resp.read()
             return resp.status, _maybe_json(body)
     except urllib.error.HTTPError as e:
-        raise SmokeFailure(f"HTTP {e.code} on {method} {path}: {e.read().decode(errors='replace')}")
+        raise SmokeFailure(f"HTTP {e.code} on {method} {path}: {e.read().decode(errors='replace')}") from None
     except urllib.error.URLError as e:
-        raise SmokeFailure(f"unreachable {url}: {e.reason}")
+        raise SmokeFailure(f"unreachable {url}: {e.reason}") from None
 
 
 def _maybe_json(body: bytes) -> object:

@@ -60,6 +60,11 @@ asr = ["faster-whisper>=1.0"]
 av = ["faster-whisper>=1.0", "scenedetect>=0.6"]
 vlm = []
 llm = []
+# L4 evaluation backends (10-observability.md §10.4.2). Both are lazy-imported
+# by ragx/observability/eval; without them the ragas/deepeval metrics report
+# NaN and only the self-implemented citation_accuracy is produced. The eval
+# runner is `python scripts/eval_l4.py` (see docs/TASKS.md §4 L4).
+eval = ["ragas>=0.2,<0.3", "deepeval>=0.22", "datasets>=2"]
 
 [project.scripts]
 ragx-serve = "ragx.api.__main__:main"

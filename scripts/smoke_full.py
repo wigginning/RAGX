@@ -77,7 +77,6 @@ def main() -> int:
         )
         print(f"[smoke] upload: {upload}")
         task_id = upload["task_id"]
-        doc_id = upload["doc_id"]
 
         # 2. Poll until DONE.
         final = _wait_task_done(client, task_id)
