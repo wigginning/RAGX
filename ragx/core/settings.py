@@ -249,6 +249,23 @@ class SecurityConfig(BaseModel):
     monthly_upload_quota_bytes: int = Field(default=0, ge=0)
 
 
+class MCPConfig(BaseModel):
+    """MCP server configuration (09-api.md §9.7.2).
+
+    Disabled by default. When ``enabled``, the FastAPI app exposes the SSE
+    transport (``GET /v1/mcp/sse`` + ``POST /v1/mcp/messages``); the stdio
+    transport is launched separately via the ``ragx-mcp`` console script.
+    """
+
+    enabled: bool = False
+    transport: Literal["stdio", "sse"] = "stdio"
+    sse_idle_timeout: float = 300.0
+    """Max seconds an SSE connection may stay idle (no pushed message) before
+    the server closes it. Protects against leaked/hung connections (proxies,
+    dead clients). ``<= 0`` disables the idle close (rely on client
+    disconnect only)."""
+
+
 class EvalConfig(BaseModel):
     """10-observability.md §10.4."""
 
@@ -279,6 +296,7 @@ class Settings(BaseSettings):
     queue: QueueConfig = Field(default_factory=QueueConfig)
     observability: OTelConfig = Field(default_factory=OTelConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
     evaluation: EvalConfig = Field(default_factory=EvalConfig)
     registry: PluginRegistryConfig = Field(default_factory=PluginRegistryConfig)
     #: Audit backend: ``"memory"`` (default, lite profile) or ``"metadata"``

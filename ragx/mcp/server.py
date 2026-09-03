@@ -85,12 +85,13 @@ class MCPServer:
         search_fn: Any | None = None,
         generate_fn: Any | None = None,
         list_kbs_fn: Any | None = None,
+        kb_acl: list[str] | None = None,
     ) -> None:
         """
         Parameters
         ----------
         search_fn:
-            Async callable ``(kb_id, query, top_k, filter, mode) -> dict``.
+            Async callable ``(kb_id, query, top_k, filter_expr, mode) -> dict``.
             Called by ``ragx_search``. Defaults to a stub.
         generate_fn:
             Async callable ``(kb_id, query, mode, overrides) -> dict``.
@@ -98,10 +99,16 @@ class MCPServer:
         list_kbs_fn:
             Async callable ``() -> list[dict]``.
             Called by ``ragx_list_kbs``. Defaults to returning an empty list.
+        kb_acl:
+            Optional allow-list of kb_ids this MCP session may touch. When
+            set, ``ragx_search`` / ``ragx_generate`` reject other kbs and
+            ``ragx_list_kbs`` is filtered to the allow-list (tenant scoping
+            for the SSE transport, which builds the server per API key).
         """
         self._search_fn = search_fn or _stub_search
         self._generate_fn = generate_fn or _stub_generate
         self._list_kbs_fn = list_kbs_fn or _stub_list_kbs
+        self._kb_acl = kb_acl
         self._initialized = False
 
     # -- JSON-RPC dispatch -------------------------------------------------
@@ -180,6 +187,11 @@ class MCPServer:
 
     # -- Tool implementations ----------------------------------------------
     async def _exec_search(self, args: dict[str, Any]) -> ToolCallResult | None:
+        if self._kb_acl is not None and args.get("kb_id") not in self._kb_acl:
+            return ToolCallResult.from_text(
+                f"kb_id '{args.get('kb_id')}' is not authorised for this MCP session",
+                is_error=True,
+            )
         try:
             result = await self._search_fn(
                 kb_id=args["kb_id"],
@@ -196,6 +208,11 @@ class MCPServer:
             )
 
     async def _exec_generate(self, args: dict[str, Any]) -> ToolCallResult | None:
+        if self._kb_acl is not None and args.get("kb_id") not in self._kb_acl:
+            return ToolCallResult.from_text(
+                f"kb_id '{args.get('kb_id')}' is not authorised for this MCP session",
+                is_error=True,
+            )
         try:
             result = await self._generate_fn(
                 kb_id=args["kb_id"],
@@ -240,3 +257,93 @@ async def _stub_generate(**kwargs) -> dict:
 
 async def _stub_list_kbs() -> list[dict]:
     return []
+
+
+def build_mcp_server(app: Any, *, kb_acl: list[str] | None = None) -> MCPServer:
+    """Wire an :class:`MCPServer` to the real RAGX backend (§9.7).
+
+    Uses the live app's registry / ``query_service`` / metadata store so the
+    three tools actually retrieve and generate instead of returning the
+    default stubs. This is what makes the MCP server usable — without it the
+    server ships inert.
+
+    ``kb_acl`` scopes the session to an allow-list of kb_ids (tenant scoping
+    for the SSE transport, which builds one server per authenticated API key).
+    """
+    from ragx.core.models import FilterExpr, RequestOverride
+    from ragx.retrieval.filters import validate_filter
+    from ragx.retrieval.hybrid import GraphChunkResolver, HybridRetriever
+    from ragx.retrieval.models import RetrievalConfig
+
+    db = app.state.db
+    registry = app.state.registry
+    kb_cfg = app.state.kb_cfg
+    query_service = app.state.query_service
+    retriever_cache: dict[str, HybridRetriever] = {}
+
+    def _retriever_for(kb_id: str) -> HybridRetriever:
+        cached = retriever_cache.get(kb_id)
+        if cached is not None:
+            return cached
+        store = registry.resolve_from_kb("vector_store", kb_cfg, kb_id=kb_id)
+        graph = (
+            registry.resolve_from_kb("graph_store", kb_cfg, kb_id=kb_id)
+            if kb_cfg.graph_store else None
+        )
+        resolver = GraphChunkResolver(store) if graph is not None else None
+        retr = HybridRetriever(
+            store, graph, resolver, RetrievalConfig(),
+            kg_enabled=kb_cfg.flags.kg_enabled,
+        )
+        retriever_cache[kb_id] = retr
+        return retr
+
+    async def search_fn(kb_id, query, top_k=8, filter_expr=None, mode="standard"):
+        embedder = registry.resolve_from_kb("embedder", kb_cfg, kb_id=kb_id)
+        qvec = (await embedder.embed([query]))[0]
+        parsed_filter = None
+        if isinstance(filter_expr, dict):
+            try:
+                parsed_filter = FilterExpr.model_validate(filter_expr)
+            except Exception:
+                parsed_filter = None
+        elif filter_expr is not None:
+            parsed_filter = validate_filter(filter_expr)
+        hits = await _retriever_for(kb_id).retrieve(query, qvec, parsed_filter)
+        results = [
+            {
+                "chunk_id": h.chunk.chunk_id,
+                "doc_id": h.chunk.doc_id,
+                "text": h.chunk.text,
+                "score": h.rrf_score if h.rrf_score is not None else (h.rerank_score or 0.0),
+                "source": ",".join(h.sources),
+            }
+            for h in hits[:top_k]
+        ]
+        return {"kb_id": kb_id, "query": query, "results": results}
+
+    async def generate_fn(kb_id, query, mode="auto", overrides=None):
+        embedder = registry.resolve_from_kb("embedder", kb_cfg, kb_id=kb_id)
+        qvec = (await embedder.embed([query]))[0]
+        override = RequestOverride.from_dict(overrides) if overrides else None
+        result = await query_service.query(
+            query, qvec, kb_id=kb_id, trace_id=f"mcp-{kb_id}", override=override,
+        )
+        return {
+            "answer": result.answer,
+            "citations": [c.model_dump() for c in result.citations],
+            "trace_id": result.trace_id,
+            "mode": result.mode,
+        }
+
+    async def list_kbs_fn():
+        kbs = await db.list_kbs()
+        if kb_acl:
+            allowed = set(kb_acl)
+            kbs = [k for k in kbs if k.get("kb_id") in allowed]
+        return kbs
+
+    return MCPServer(
+        search_fn=search_fn, generate_fn=generate_fn, list_kbs_fn=list_kbs_fn,
+        kb_acl=kb_acl,
+    )

@@ -63,6 +63,7 @@ llm = []
 
 [project.scripts]
 ragx-serve = "ragx.api.__main__:main"
+ragx-mcp = "ragx.mcp.__main__:main"
 
 # SPI entry point groups (01-spi.md §1.1). Builtin plugins are registered here so
 # that `PluginRegistry.discover()` works out of the box without packaging each one.

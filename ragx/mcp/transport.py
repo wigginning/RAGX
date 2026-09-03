@@ -136,17 +136,44 @@ class SSETransport:
             )
         await queue.put(resp.model_dump_json(exclude_none=True))
 
-    def sse_stream(self, session_id: str):
-        """Generator that yields SSE-formatted events for a session."""
+    def sse_stream(self, session_id: str, request=None, idle_timeout: float | None = None):
+        """Generator that yields SSE-formatted events for a session.
+
+        After emitting the ``sessionId`` event it pushes any message delivered
+        via :meth:`deliver_message`. The loop terminates when:
+
+        * the client disconnects (best-effort, via ``request.is_disconnected``),
+        * or the connection has been idle (no pushed message) for longer than
+          ``idle_timeout`` seconds (``<= 0`` disables this safety net).
+
+        The idle guard lets the server reap hung/dead SSE connections instead of
+        blocking forever on an empty queue (which would also block test
+        teardown under TestClient, where ``http.disconnect`` is not delivered).
+        """
         queue = self._connections.get(session_id)
         if queue is None:
             return
 
+        import time
+
         async def _iter():
             # Send the session ID event
             yield f"event: sessionId\ndata: {session_id}\n\n"
-            while True:
-                data = await queue.get()
-                yield f"data: {data}\n\n"
+            last_activity = time.monotonic()
+            try:
+                while True:
+                    if request is not None and await request.is_disconnected():
+                        break
+                    try:
+                        data = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    except TimeoutError:
+                        if idle_timeout is not None and idle_timeout > 0:
+                            if (time.monotonic() - last_activity) >= idle_timeout:
+                                break
+                        continue
+                    last_activity = time.monotonic()
+                    yield f"data: {data}\n\n"
+            finally:
+                self.close_session(session_id)
 
         return _iter()

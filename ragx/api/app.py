@@ -260,5 +260,12 @@ def create_app(
     app.include_router(metrics.router, prefix="/v1")
     app.include_router(audit.router, prefix="/v1")
     app.include_router(traces_router, prefix="/v1")
+
+    # MCP SSE transport (09-api.md §9.7.2) — only when explicitly enabled.
+    if settings.mcp.enabled:
+        from ragx.api.routes.mcp import router as mcp_router
+
+        app.include_router(mcp_router, prefix="/v1")
+
     app.state.metrics = _get_metrics()
     return app
