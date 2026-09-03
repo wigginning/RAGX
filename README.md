@@ -87,10 +87,39 @@ See [`DESIGN.md`](DESIGN.md) and [`docs/design/`](docs/design/) for the full des
 | `PUT  /v1/chunks/{id}` | Edit a chunk (optimistic lock) |
 | `GET  /v1/health?deep=true` | Deep dependency health check |
 | `GET  /v1/metrics` | Prometheus exposition |
-| `MCP  /v1/mcp` | Model Context Protocol server (stdio) |
+| `GET  /v1/mcp/sse` · `POST /v1/mcp/messages` | MCP over SSE (opt-in, see below) |
 
 All responses share a unified error envelope `{error: {code, message, trace_id}}` and error codes by segment (00-overview.md §0.3):
 - `1xxx` access · `2xxx` ingest · `3xxx` chunks · `4xxx` retrieval · `5xxx` graph · `6xxx` LLM · `7xxx` agentic · `9xxx` infra
+
+## MCP (Model Context Protocol)
+
+Expose RAGX retrieval/generation as standard MCP tools — `ragx_search`,
+`ragx_generate`, `ragx_list_kbs` (see `docs/design/09-api.md` §9.7).
+
+**stdio** — for local agents / CLI; no server changes required:
+
+```bash
+ragx-mcp            # or: python -m ragx.mcp
+```
+
+**SSE** — for remote/service integrations; opt-in because it mounts extra routes:
+
+```bash
+RAGX_MCP.ENABLED=true RAGX_MCP.TRANSPORT=sse ragx-serve
+# GET  /v1/mcp/sse        -> emits an `event: sessionId` on connect
+# POST /v1/mcp/messages?sessionId=<sid>
+```
+
+| Setting | Env var | Default | Notes |
+|---|---|---|---|
+| `mcp.enabled` | `RAGX_MCP.ENABLED` | `false` | `false` = no `/v1/mcp/*` routes |
+| `mcp.transport` | `RAGX_MCP.TRANSPORT` | `stdio` | preferred transport |
+| `mcp.sse_idle_timeout` | `RAGX_MCP.SSE_IDLE_TIMEOUT` | `300` | seconds; `<= 0` disables the idle close |
+
+Each SSE session is scoped to the calling API key's `kb_acl`: out-of-scope
+`kb_id` yields a tool-level error and `ragx_list_kbs` only lists authorised
+knowledge bases — same tenant isolation as the REST API.
 
 ## Development
 
@@ -98,8 +127,11 @@ All responses share a unified error envelope `{error: {code, message, trace_id}}
 # install everything
 pip install -e ".[lite,dev]"
 
-# run tests (180 unit + 72 contract/integration pass; 28 skipped for ES/Qdrant/Neo4j)
+# run tests (342 passed / 31 skipped; skips are ES/Qdrant/Neo4j/Milvus contract suites)
 pytest -q tests/unit tests/contract tests/integration
+
+# end-to-end journey (upload → ingest → search → chat with citations, in-process)
+pytest -q tests/e2e        # 8 passed
 
 # lint + type-check
 ruff check ragx tests
@@ -116,9 +148,11 @@ python scripts/smoke_lite.py
 - [`docs/design/01-spi.md`](docs/design/01-spi.md) — 7 SPI interfaces and contracts
 - [`docs/design/06-retrieval.md`](docs/design/06-retrieval.md) — hybrid retrieval and routing
 - [`docs/design/08-llm.md`](docs/design/08-llm.md) — Resilient Model Router, cache, ledger
+- [`docs/design/09-api.md`](docs/design/09-api.md) — REST contracts, auth, streaming, **MCP** (§9.7)
 - [`docs/design/12-prompts.md`](docs/design/12-prompts.md) — all 14 prompt templates v1
 - [`docs/TASKS.md`](docs/TASKS.md) — task cards with DoD + verification commands
 - [`docs/adr/`](docs/adr/) — Architecture Decision Records
+- [`CHANGELOG.md`](CHANGELOG.md) — release notes (BREAKING changes marked)
 
 ## Versioning
 

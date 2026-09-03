@@ -165,8 +165,8 @@ class TestQueryServiceTraceCapture:
 
     async def test_query_persists_replayable_trace(self) -> None:
         from ragx.core.settings import KBConfig
-        from ragx.retrieval.models import RetrievalConfig
         from ragx.llm.prompts import PromptRegistry
+        from ragx.retrieval.models import RetrievalConfig
         from ragx.retrieval.pipeline import QueryService
 
         store = RAGTraceStore(":memory:")
@@ -196,8 +196,8 @@ class TestQueryServiceTraceCapture:
 
     async def test_query_without_trace_store_is_noop(self) -> None:
         from ragx.core.settings import KBConfig
-        from ragx.retrieval.models import RetrievalConfig
         from ragx.llm.prompts import PromptRegistry
+        from ragx.retrieval.models import RetrievalConfig
         from ragx.retrieval.pipeline import QueryService
 
         # No trace_store wired → query must still succeed, no trace captured.
