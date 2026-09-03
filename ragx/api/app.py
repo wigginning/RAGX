@@ -17,6 +17,7 @@ from ragx.api.middleware import (
     AuthMiddleware,
     InMemoryAuditStore,
     InMemoryQuotaStore,
+    IpRateLimitMiddleware,
     MetadataAuditStore,
     MetadataQuotaStore,
     QuotaMiddleware,
@@ -134,6 +135,17 @@ def create_app(
     rate_limiter = RateLimiter.create(
         settings.security, redis_url=settings.queue.redis_url
     )
+    # Per-client-IP ring (outside Auth, guards credential brute force).
+    # Optional: enabled when SecurityConfig.ip_rate_limit_rps > 0.
+    ip_limiter: Any = None
+    if settings.security.ip_rate_limit_rps > 0:
+        ip_cfg = settings.security.model_copy(
+            update={
+                "rate_limit_rps": settings.security.ip_rate_limit_rps,
+                "rate_limit_burst": settings.security.ip_rate_limit_burst,
+            }
+        )
+        ip_limiter = RateLimiter.create(ip_cfg, redis_url=settings.queue.redis_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -152,6 +164,8 @@ def create_app(
         yield
         await queue.shutdown()
         await rate_limiter.shutdown()
+        if ip_limiter is not None:
+            await ip_limiter.shutdown()
         await registry.shutdown_all()
         await db.close()
         await trace_store.close()
@@ -180,6 +194,11 @@ def create_app(
     app.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
     app.add_middleware(QuotaMiddleware, config=settings.security)
     app.add_middleware(AuthMiddleware, security=settings.security, store=db)
+    if ip_limiter is not None:
+        # Between Auth and Audit: invalid credentials are throttled by IP
+        # (Auth rejects them before the per-key limiter could), and Audit
+        # (outermost) still records the 429s.
+        app.add_middleware(IpRateLimitMiddleware, limiter=ip_limiter)
     app.add_middleware(AuditMiddleware)
     register_exception_handlers(app)
 

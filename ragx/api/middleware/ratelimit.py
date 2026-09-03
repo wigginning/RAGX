@@ -290,3 +290,31 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # the unified error envelope directly (§9.1.2).
             return error_response(exc, getattr(request.state, "trace_id", None))
         return await call_next(request)
+
+
+class IpRateLimitMiddleware(BaseHTTPMiddleware):
+    """Per-client-IP token-bucket ring, enforced OUTSIDE Auth (§9.2.4).
+
+    Guards credential brute force: an invalid API key is rejected by
+    AuthMiddleware *before* the per-key limiter (which sits inside auth)
+    could ever throttle it. This ring is added outside Auth and keys on the
+    peer IP, so a flood of bad credentials still consumes a per-IP bucket.
+
+    Disabled when ``SecurityConfig.ip_rate_limit_rps <= 0`` (the default).
+    Key the bucket on the TCP peer (``request.client``) — if you run behind
+    a reverse proxy, terminate it at a trusted edge or add a proxy header
+    allow-list before enabling; blindly trusting ``X-Forwarded-For`` lets an
+    attacker forge a fresh IP per request.
+    """
+
+    def __init__(self, app: Any, *, limiter: RateLimiter) -> None:
+        super().__init__(app)
+        self.limiter = limiter
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        peer = request.client.host if request.client is not None else "unknown"
+        try:
+            await self.limiter.check_or_raise(f"ip:{peer}")
+        except RAGXError as exc:
+            return error_response(exc, getattr(request.state, "trace_id", None))
+        return await call_next(request)

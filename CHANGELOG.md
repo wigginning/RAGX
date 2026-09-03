@@ -83,6 +83,10 @@ MCP 完善 + E2E 全套 + 文档齐备, with L1–L4 green and a passed security
     `Audit -> Auth -> Quota -> RateLimit -> Trace`.
   * 403 bodies no longer echo the caller's full `kb_acl`; API-key hashes are
     compared with `hmac.compare_digest`.
+  * Optional per-client-IP rate-limit ring (`SecurityConfig.ip_rate_limit_rps`
+    / `ip_rate_limit_burst`, off by default) enforced outside auth, so a
+    flood of invalid credentials — which auth rejects before the per-key
+    limiter can see it — is still throttled (credential brute force).
 
 ---
 

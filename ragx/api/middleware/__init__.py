@@ -32,6 +32,7 @@ from ragx.api.middleware.quota import (
 )
 from ragx.api.middleware.ratelimit import (
     InProcessRateLimiter,
+    IpRateLimitMiddleware,
     RateLimiter,
     RateLimitMiddleware,
     RedisRateLimiter,
@@ -54,6 +55,7 @@ __all__ = [
     "RateLimiter",
     "RateLimitMiddleware",
     "InProcessRateLimiter",
+    "IpRateLimitMiddleware",
     "RedisRateLimiter",
     "TraceMiddleware",
     "entry_to_dict",

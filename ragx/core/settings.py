@@ -242,6 +242,11 @@ class SecurityConfig(BaseModel):
     jwt_secret: str = ""
     rate_limit_rps: float = Field(default=10.0, gt=0)
     rate_limit_burst: int = Field(default=20, ge=1)
+    #: Per-client-IP token bucket, enforced OUTSIDE auth (guards credential
+    #: brute force, which the per-key limiter cannot see because invalid keys
+    #: are rejected by AuthMiddleware first). ``0`` disables this ring.
+    ip_rate_limit_rps: float = Field(default=0.0, ge=0)
+    ip_rate_limit_burst: int = Field(default=0, ge=0)
     max_upload_mb: int = Field(default=50, ge=1)
     #: Per-tenant monthly LLM token quota. ``0`` disables the quota gate.
     monthly_token_quota: int = Field(default=0, ge=0)
