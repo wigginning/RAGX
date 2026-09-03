@@ -56,6 +56,20 @@ MCP 完善 + E2E 全套 + 文档齐备, with L1–L4 green and a passed security
 - MCP tool calls honour the calling key's `kb_acl`: an out-of-scope `kb_id`
   returns a tool-level error rather than data, and `ragx_list_kbs` only lists
   authorised knowledge bases — matching REST isolation.
+- **v1.0 security review** (`cf5ef15`, report:
+  `docs/security-review-2026-09-03.md`):
+  * `GET /v1/traces` and `GET /v1/traces/{id}` are now scoped to the caller's
+    `kb_acl` — previously any key could read another tenant's traces (raw
+    queries + retrieved context).
+  * `GET /v1/audit?tenant_id=` no longer accepts a foreign tenant override —
+    a caller is pinned to its own tenant (403/1003 otherwise).
+  * Rate limiting and upload quota are now keyed per caller: both middleware
+    ran before auth, so every key shared one "anonymous" token bucket and
+    every tenant one "default" quota bucket — one tenant could 429 or
+    quota-block the whole deployment. Middleware order is now
+    `Audit -> Auth -> Quota -> RateLimit -> Trace`.
+  * 403 bodies no longer echo the caller's full `kb_acl`; API-key hashes are
+    compared with `hmac.compare_digest`.
 
 ---
 
