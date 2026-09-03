@@ -36,6 +36,11 @@ MCP 完善 + E2E 全套 + 文档齐备, with L1–L4 green and a passed security
 - **RAG Trace capture + replay API** (`787152c`) — `GET /v1/traces` (RX-OBS-04).
 - **Semantic cache activation** (`4674349`) — LLM-02 cache now consulted/stored
   at runtime instead of only being constructed.
+- **Runnable L4 evaluation gate** (`c492419`) — `scripts/eval_l4.py` +
+  `make eval` / `make eval-local` / `make eval-update`, the `ragx[eval]`
+  install extra (ragas/deepeval/datasets), a `build_evaluator()` factory, and
+  `docs/benchmarks.md`. The gate itself (run_eval, baseline comparison,
+  citation_accuracy) existed but had no way to be installed or invoked.
 
 ### Fixed
 
