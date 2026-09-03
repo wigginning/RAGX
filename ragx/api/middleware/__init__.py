@@ -17,7 +17,12 @@ from ragx.api.middleware.audit import (
     entry_to_dict,
 )
 from ragx.api.middleware.audit_store import MetadataAuditStore
-from ragx.api.middleware.auth import AuthContext, AuthMiddleware, require_kb_access
+from ragx.api.middleware.auth import (
+    AuthContext,
+    AuthMiddleware,
+    require_kb_access,
+    require_tenant_access,
+)
 from ragx.api.middleware.quota import (
     InMemoryQuotaStore,
     MetadataQuotaStore,
@@ -53,4 +58,5 @@ __all__ = [
     "TraceMiddleware",
     "entry_to_dict",
     "require_kb_access",
+    "require_tenant_access",
 ]

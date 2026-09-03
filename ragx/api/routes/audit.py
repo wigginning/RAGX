@@ -1,8 +1,9 @@
 """GET /v1/audit (09-api.md §9.6).
 
-Read access to the audit log. The current tenant always scopes its own
-entries; cross-tenant access requires admin scope (not yet modelled —
-kept open for the v1.0 release).
+Read access to the audit log. A caller is scoped to its own tenant; a
+``tenant_id`` query param naming a foreign tenant is rejected with 403/1003
+(admin cross-tenant scope is not modelled yet, so nobody can read another
+tenant's trail through this endpoint).
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from ragx.api.middleware import entry_to_dict
+from ragx.api.middleware import entry_to_dict, require_tenant_access
 
 router = APIRouter()
 
@@ -29,12 +30,21 @@ async def list_audit_entries(
     tenant_id: str | None = None,
     limit: int = 100,
 ) -> AuditEntryResponse:
-    """Return recent audit entries for the current tenant (or any tenant if admin)."""
+    """Return recent audit entries for the current tenant.
+
+    A caller may only read its own tenant's entries. The ``tenant_id`` query
+    param is honoured only when it equals the caller's tenant — passing a
+    foreign ``tenant_id`` raises 403/1003 instead of leaking another tenant's
+    audit trail (admin cross-tenant scope is not modelled yet).
+    """
     state = request.state
     auth = getattr(state, "auth", None)
-    effective_tenant = tenant_id or (
-        getattr(auth, "tenant_id", None) if auth else "default"
-    )
+    caller_tenant = getattr(auth, "tenant_id", None) if auth else None
+    effective_tenant = tenant_id or caller_tenant or "default"
+    if tenant_id is not None:
+        # Mirrors require_kb_access: unauthenticated (auth disabled) callers
+        # are unrestricted; authenticated callers are pinned to their tenant.
+        require_tenant_access(request, tenant_id)
     store = getattr(request.app.state, "audit_store", None)
     if store is None:
         return AuditEntryResponse(entries=[], count=0, trace_id=state.trace_id)

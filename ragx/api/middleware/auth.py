@@ -169,9 +169,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # 1) static seed from settings
         for key_id, spec in self.security.api_keys.items():
-            if spec.get("key_hash") == key_hash or (
-                "key" in spec and _sha256(str(spec["key"])) == key_hash
-            ):
+            stored_hash = spec.get("key_hash")
+            if stored_hash is None and "key" in spec:
+                stored_hash = _sha256(str(spec["key"]))
+            # Constant-time: don't let response timing leak the stored digest.
+            if stored_hash is not None and hmac.compare_digest(stored_hash, key_hash):
                 if not spec.get("enabled", True):
                     raise AuthError("API key disabled", code=1002,
                                     details={"key_id": key_id})
@@ -213,5 +215,28 @@ def require_kb_access(request: Request, kb_id: str) -> None:
         raise AuthError(
             "kb not authorised for this key",
             code=1003,
-            details={"kb_id": kb_id, "key_id": auth.key_id, "kb_acl": auth.kb_acl},
+            # NB: the key's full kb_acl is deliberately NOT echoed back —
+            # doing so hands an unauthorised caller an enumeration of every
+            # kb_id their (or a stolen) key may reach.
+            details={"kb_id": kb_id},
+        )
+
+
+def require_tenant_access(request: Request, tenant_id: str) -> None:
+    """Raise ``AuthError(1003)`` when ``tenant_id`` is not the caller's tenant.
+
+    Counterpart to :func:`require_kb_access` for endpoints keyed by tenant
+    rather than by kb (e.g. ``GET /v1/audit``). Such endpoints must not let a
+    caller pass an arbitrary ``tenant_id`` — otherwise any key can read any
+    tenant's rows. Unauthenticated (auth disabled) callers are unrestricted,
+    matching :func:`require_kb_access`.
+    """
+    auth: AuthContext | None = getattr(request.state, "auth", None)
+    if auth is None or not auth.authenticated:
+        return
+    if tenant_id != auth.tenant_id:
+        raise AuthError(
+            "tenant not authorised for this key",
+            code=1003,
+            details={"tenant_id": tenant_id},
         )

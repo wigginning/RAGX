@@ -169,10 +169,17 @@ def create_app(
     quota_store: Any = InMemoryQuotaStore()
     if getattr(settings, "audit_backend", None) == "metadata":
         quota_store = MetadataQuotaStore(db)
+    # Middleware execution order (outermost -> innermost):
+    #   Audit -> Auth -> Quota -> RateLimit -> Trace
+    # Auth MUST run before Quota and RateLimit: both key their buckets by the
+    # auth context (request.state.tenant_id / request.state.auth.key_id).
+    # With them outside Auth the context is never resolved in time, every key
+    # shares one "anonymous" bucket and every tenant one "default" quota — one
+    # tenant could exhaust the shared bucket and 429/quota-block everyone else.
     app.add_middleware(TraceMiddleware)
-    app.add_middleware(AuthMiddleware, security=settings.security, store=db)
     app.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
     app.add_middleware(QuotaMiddleware, config=settings.security)
+    app.add_middleware(AuthMiddleware, security=settings.security, store=db)
     app.add_middleware(AuditMiddleware)
     register_exception_handlers(app)
 

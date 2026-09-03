@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ragx.api.middleware import require_kb_access
 from ragx.observability.rag_trace import RAGTrace
 
 router = APIRouter()
@@ -31,7 +32,12 @@ async def list_traces(
     limit: int = 50,
     offset: int = 0,
 ) -> TraceListResponse:
-    """List recent RAG Traces for a kb (newest first, §10.5)."""
+    """List recent RAG Traces for a kb (newest first, §10.5).
+
+    Traces contain the raw query and retrieved context, so reading another
+    tenant's traces is a data leak — scope ``kb_id`` to the key's ACL.
+    """
+    require_kb_access(request, kb_id)
     state: Any = request.state
     store = getattr(request.app.state, "trace_store", None)
     if store is None:
@@ -44,11 +50,16 @@ async def list_traces(
 
 @router.get("/traces/{trace_id}", response_model=RAGTrace)
 async def get_trace(request: Request, trace_id: str) -> RAGTrace:
-    """Replay one full RAG Trace by id (404 when missing, §10.5)."""
+    """Replay one full RAG Trace by id (404 when missing, §10.5).
+
+    The trace is scoped to the key's ACL by its own ``kb_id`` — a caller may
+    only read traces of kbs it is authorised for.
+    """
     store = getattr(request.app.state, "trace_store", None)
     if store is None:
         raise HTTPException(status_code=404, detail="trace store unavailable")
     trace = await store.get(trace_id)
     if trace is None:
         raise HTTPException(status_code=404, detail=f"trace {trace_id} not found")
+    require_kb_access(request, trace.kb_id)
     return trace

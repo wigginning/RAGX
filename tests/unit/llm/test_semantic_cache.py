@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
@@ -20,9 +21,14 @@ class _StubEmbedder:
         # deterministic, near-identical vectors for identical text; rotate
         # one coordinate for distinct text. This is enough to exercise the
         # similarity threshold logic.
+        #
+        # NB: never use builtin hash() here — its seed is randomised per
+        # process, so a lucky/unlucky seed made a vector all-zero and the
+        # similarity tests flaked (~1/16 of runs). md5 is seed-independent.
         out = []
         for t in texts:
-            h = hash(t) % 1000
+            digest = hashlib.md5(t.encode("utf-8")).digest()
+            h = int.from_bytes(digest[:4], "little")
             base = [float((h >> i) & 1) for i in range(self.dimension)]
             out.append(base)
         return out
