@@ -1,0 +1,290 @@
+# RAGX full profile (RX-INF-01): ES + Neo4j + MinIO + PostgreSQL + Redis + Grafana.
+#
+#   docker compose -f deploy/compose/full.yml up -d
+#   pip install -e ".[full]"
+#   python scripts/smoke_full.py
+#
+# Differences from lite compose:
+#   * Elasticsearch 8 (vector + BM25 hybrid via ragx.plugins.vector_es)
+#   * Neo4j 5  (graph store via ragx.plugins.graph_neo4j)
+#   * MinIO    (object store via ragx.plugins.object_store_minio)
+#   * PostgreSQL (metadata + cost ledger; lite uses SQLite at /data)
+#   * Redis    (semantic cache + task queue; lite uses in-process both)
+#   * Prometheus + Grafana (observability dashboard, /metrics scraping)
+#
+# All middleware is deployed under one compose project with the ``ragx-``
+# prefix (project/network name is ``ragx`` and every container is
+# ``ragx-<service>``), so multiple stacks can coexist on one host.
+name: ragx
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.full
+    container_name: ragx-api
+    environment:
+      RAGX_PROFILE: full
+      RAGX_DATA_DIR: /data
+      # metadata + vector store on a shared volume so data survives restarts
+      RAGX_PLUGINS.VECTOR_STORE.ES.HOSTS: http://ragx-es:9200
+      RAGX_PLUGINS.VECTOR_STORE.ES.INDEX: ragx_chunks
+      RAGX_PLUGINS.GRAPH_STORE.NEO4J.URI: bolt://ragx-neo4j:7687
+      RAGX_PLUGINS.GRAPH_STORE.NEO4J.USER: neo4j
+      RAGX_PLUGINS.GRAPH_STORE.NEO4J.PASSWORD: ragx12345
+      RAGX_PLUGINS.GRAPH_STORE.NEO4J.DATABASE: neo4j
+      RAGX_PLUGINS.OBJECT_STORE.MINIO.ENDPOINT: ragx-minio:9000
+      RAGX_PLUGINS.OBJECT_STORE.MINIO.ACCESS_KEY: ragx
+      RAGX_PLUGINS.OBJECT_STORE.MINIO.SECRET_KEY: ragx12345
+      RAGX_PLUGINS.OBJECT_STORE.MINIO.BUCKET: ragx
+      RAGX_PLUGINS.CACHE.REDIS.URL: redis://ragx-redis:6379/0
+      # task queue backed by Redis Streams
+      RAGX_QUEUE.DRIVER: redis
+      RAGX_QUEUE.REDIS_URL: redis://ragx-redis:6379/0
+      RAGX_QUEUE.STREAM_PREFIX: "ragx:ingest"
+      RAGX_QUEUE.CONSUMER_GROUP: ragx-workers
+      RAGX_QUEUE.BLOCK_MS: "2000"
+      RAGX_QUEUE.WORKER_CONCURRENCY: "4"
+      RAGX_QUEUE.AUTO_CONSUME: "true"
+      # metadata DB lives in PostgreSQL in full profile
+      RAGX_METADATA_DB.URL: postgresql://ragx:ragx12345@ragx-postgres:5432/ragx
+      # OpenAI-compatible endpoint used by chat/agentic generation.
+      RAGX_LLM.PROVIDERS.OPENAI_COMPAT.BASE_URL: http://ragx-mock-llm:8001/v1
+      RAGX_LLM.PROVIDERS.OPENAI_COMPAT.MODEL: ragx-mock
+      RAGX_LLM.ROLES.GENERATE.PRIMARY.PROVIDER: openai_compat
+      RAGX_LLM.ROLES.GENERATE.PRIMARY.MODEL: ragx-mock
+      RAGX_LLM.ROLES.GENERATE.MAX_RETRIES: "1"
+      RAGX_LLM.ROLES.GENERATE.TIMEOUT: "30"
+      RAGX_LLM.ROLES.EXTRACT.PRIMARY.PROVIDER: openai_compat
+      RAGX_LLM.ROLES.EXTRACT.PRIMARY.MODEL: ragx-mock
+      RAGX_LLM.ROLES.EXTRACT.MAX_RETRIES: "1"
+      RAGX_LLM.ROLES.EXTRACT.TIMEOUT: "30"
+      # Auth / rate limiting
+      RAGX_SECURITY.RATE_LIMIT_RPS: "20"
+      RAGX_SECURITY.RATE_LIMIT_BURST: "40"
+    ports:
+      - "18000:8000"
+    volumes:
+      - ragx-data:/data
+    depends_on:
+      ragx-es:
+        condition: service_healthy
+      ragx-neo4j:
+        condition: service_started
+      ragx-minio:
+        condition: service_started
+      ragx-redis:
+        condition: service_started
+      ragx-postgres:
+        condition: service_started
+      ragx-mock-llm:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,os; urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=2)\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # Standalone worker process. The API process also runs the queue consumer
+  # (RAGX_QUEUE.AUTO_CONSUME=true) but this dedicated worker is for users who
+  # want to scale ingestion independently of the query path.
+  worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.full
+    container_name: ragx-worker
+    command:
+      - python
+      - -m
+      - ragx.ingestion.worker
+    environment:
+      RAGX_PROFILE: full
+      RAGX_PLUGINS.VECTOR_STORE.ES.HOSTS: http://ragx-es:9200
+      RAGX_PLUGINS.VECTOR_STORE.ES.INDEX: ragx_chunks
+      RAGX_PLUGINS.GRAPH_STORE.NEO4J.URI: bolt://ragx-neo4j:7687
+      RAGX_PLUGINS.GRAPH_STORE.NEO4J.USER: neo4j
+      RAGX_PLUGINS.GRAPH_STORE.NEO4J.PASSWORD: ragx12345
+      RAGX_PLUGINS.GRAPH_STORE.NEO4J.DATABASE: neo4j
+      RAGX_PLUGINS.OBJECT_STORE.MINIO.ENDPOINT: ragx-minio:9000
+      RAGX_PLUGINS.OBJECT_STORE.MINIO.ACCESS_KEY: ragx
+      RAGX_PLUGINS.OBJECT_STORE.MINIO.SECRET_KEY: ragx12345
+      RAGX_PLUGINS.OBJECT_STORE.MINIO.BUCKET: ragx
+      RAGX_PLUGINS.CACHE.REDIS.URL: redis://ragx-redis:6379/0
+      RAGX_QUEUE.DRIVER: redis
+      RAGX_QUEUE.REDIS_URL: redis://ragx-redis:6379/0
+      RAGX_METADATA_DB.URL: postgresql://ragx:ragx12345@ragx-postgres:5432/ragx
+      RAGX_LLM.PROVIDERS.OPENAI_COMPAT.BASE_URL: http://ragx-mock-llm:8001/v1
+      RAGX_LLM.PROVIDERS.OPENAI_COMPAT.MODEL: ragx-mock
+      RAGX_LLM.ROLES.GENERATE.PRIMARY.PROVIDER: openai_compat
+      RAGX_LLM.ROLES.GENERATE.PRIMARY.MODEL: ragx-mock
+    depends_on:
+      ragx-es:
+        condition: service_healthy
+      ragx-neo4j:
+        condition: service_started
+      ragx-minio:
+        condition: service_started
+      ragx-redis:
+        condition: service_started
+      ragx-postgres:
+        condition: service_started
+    volumes:
+      - ragx-data:/data
+
+  # ── external middleware ────────────────────────────────────────────────
+  ragx-es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: ragx-es
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  ragx-neo4j:
+    image: neo4j:5.26
+    container_name: ragx-neo4j
+    mem_limit: 2g
+    environment:
+      - NEO4J_AUTH=neo4j/ragx12345
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - ragx-neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  ragx-minio:
+    image: minio/minio:latest
+    container_name: ragx-minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=ragx
+      - MINIO_ROOT_PASSWORD=ragx12345
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ragx-minio-data:/data
+
+  ragx-postgres:
+    image: postgres:16-alpine
+    container_name: ragx-postgres
+    environment:
+      - POSTGRES_USER=ragx
+      - POSTGRES_PASSWORD=ragx12345
+      - POSTGRES_DB=ragx
+    ports:
+      - "5432:5432"
+    volumes:
+      - ragx-postgres-data:/var/lib/postgresql/data
+
+  ragx-redis:
+    image: redis:7-alpine
+    container_name: ragx-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # Minimal OpenAI-compatible endpoint used by the smoke test so the full
+  # upload -> query -> citations flow runs with zero external credentials.
+  ragx-mock-llm:
+    image: python:3.12-slim
+    container_name: ragx-mock-llm
+    command:
+      - python
+      - -c
+      - |
+        import json
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def _send(self, obj, code=200):
+                body = json.dumps(obj).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0))
+                json.loads(self.rfile.read(n) or b"{}")
+                self._send({
+                    "id": "chatcmpl-mock",
+                    "object": "chat.completion",
+                    "model": "ragx-mock",
+                    "choices": [{
+                        "index": 0,
+                        "message": {"role": "assistant",
+                                    "content": "根据检索到的上下文，答案见引用 [1]。"},
+                        "finish_reason": "stop",
+                    }],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 50,
+                              "total_tokens": 150},
+                })
+            def do_GET(self):
+                self._send({"status": "ok"})
+        HTTPServer(("0.0.0.0", 8001), H).serve_forever()
+    expose:
+      - "8001"
+
+  # ── observability ───────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: ragx-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ragx-prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: ragx-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=ragx
+      - GF_SECURITY_ADMIN_PASSWORD=ragx12345
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ragx-grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  ragx-data:
+  ragx-neo4j-data:
+  ragx-minio-data:
+  ragx-postgres-data:
+  ragx-prometheus-data:
+  ragx-grafana-data:

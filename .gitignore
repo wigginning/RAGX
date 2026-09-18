@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local/secret config
+.env
+*.local.yaml
+*.local.yml
+
+# Editor
+.vscode/
+.idea/
+
+# Local project memory / agent state
+.workbuddy/
+
+# Internal working docs (design specs, ADRs, task ledger, security reviews)
+DESIGN.md
+.github/
+docs/TASKS.md
+docs/adr/
+docs/design/
+docs/benchmarks.md
+docs/security-review-*.md

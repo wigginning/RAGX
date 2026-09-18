@@ -1,0 +1,5 @@
+[
+  {"question":"LightRAG 的双层检索分哪两层？","faithfulness":0.92,"answer_relevancy":0.88,"context_recall":0.95,"context_precision":0.87,"answer_correctness":0.90,"citation_accuracy":0.93},
+  {"question":"RAGFlow DeepDoc 用什么感知布局？","faithfulness":0.90,"answer_relevancy":0.91,"context_recall":0.89,"context_precision":0.85,"answer_correctness":0.88,"citation_accuracy":0.91},
+  {"question":"RAGX 的熔断器状态有几个？","faithfulness":0.94,"answer_relevancy":0.89,"context_recall":0.92,"context_precision":0.88,"answer_correctness":0.91,"citation_accuracy":0.92}
+]

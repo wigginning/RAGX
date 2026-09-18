@@ -1,0 +1,90 @@
+{{- if .Values.minio.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "ragx.fullname" . }}-minio
+  labels:
+    {{- include "ragx.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  serviceName: {{ include "ragx.fullname" . }}-minio
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ragx.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: minio
+  template:
+    metadata:
+      labels:
+        {{- include "ragx.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: minio
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image | quote }}
+          command: ["server", "/data", "--console-address", ":{{ .Values.minio.consolePort }}"]
+          ports:
+            - name: api
+              containerPort: {{ .Values.minio.port }}
+            - name: console
+              containerPort: {{ .Values.minio.consolePort }}
+          env:
+            - name: _RAGX_MINIO_ACCESS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ragx.secretName" . }}
+                  key: minio-access-key
+            - name: _RAGX_MINIO_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ragx.secretName" . }}
+                  key: minio-secret-key
+            - name: MINIO_ROOT_USER
+              value: "$(_RAGX_MINIO_ACCESS)"
+            - name: MINIO_ROOT_PASSWORD
+              value: "$(_RAGX_MINIO_SECRET)"
+          {{- with .Values.minio.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.minio.persistence.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ .Values.minio.persistence.size | quote }}
+        {{- if .Values.minio.persistence.storageClass }}
+        storageClassName: {{ .Values.minio.persistence.storageClass | quote }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ragx.fullname" . }}-minio
+  labels:
+    {{- include "ragx.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  type: ClusterIP
+  ports:
+    - name: api
+      port: {{ .Values.minio.port }}
+      targetPort: api
+    - name: console
+      port: {{ .Values.minio.consolePort }}
+      targetPort: console
+  selector:
+    {{- include "ragx.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+{{- end }}

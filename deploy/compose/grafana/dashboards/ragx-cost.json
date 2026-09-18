@@ -1,0 +1,54 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Cost per tenant ($/h)",
+      "id": 1,
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum by (tenant) (rate(ragx_llm_cost_usd_total[1h])) * 3600",
+          "legendFormat": "{{tenant}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Cost by role x model x tenant ($ total, last 24h)",
+      "id": 2,
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum by (role, model, tenant) (increase(ragx_llm_cost_usd_total[24h]))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Token usage mix (prompt vs completion)",
+      "id": 3,
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 9},
+      "targets": [
+        {
+          "expr": "sum by (role) (rate(ragx_llm_tokens_total[5m]))",
+          "legendFormat": "{{role}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["ragx", "cost"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "title": "RAGX Cost Dashboard",
+  "uid": "ragx-cost",
+  "version": 1
+}

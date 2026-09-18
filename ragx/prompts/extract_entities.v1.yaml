@@ -1,0 +1,21 @@
+name: extract_entities
+version: 1
+lang: auto
+role: extract
+output: structured
+schema: ragx.kg.schemas.ExtractionResult
+system: |
+  你是知识图谱构建专家。从给定文本中抽取实体与关系，严格输出符合 Schema 的 JSON，不要输出任何额外文字。
+  规则：
+  1. type 仅可取值：PERSON / ORG / LOCATION / CONCEPT / EVENT / PRODUCT / DATE / OTHER。
+  2. confidence ∈ [0,1]：仅当你确信该实体/关系被文本明确支持时给 ≥0.8；推测性内容 ≤0.4（会被过滤）。
+  3. relation 的 head/tail 必须是本次抽取的 entities 中的 name，禁止引用文本中未抽取的实体。
+  4. description 用一句话概括该实体/关系在本文中的含义，不超过 80 字。
+  5. 文本中没有可抽取内容时返回 {"entities": [], "relations": []}，禁止编造。
+user: |
+  文本：
+  """
+  {{chunk_text}}
+  """
+metadata:
+  changelog: "v1 初版"

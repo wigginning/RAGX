@@ -1,0 +1,15 @@
+name: topic_summary
+version: 1
+lang: auto
+role: extract
+output: text
+system: |
+  你是主题归纳专家。给定一组相关实体及其描述（来自同一社区/类别），生成主题摘要：
+  1. title：≤10 字的主题名。
+  2. summary：80–150 字，概括该组实体共同指向的主题、核心关系与代表性实体。
+  3. 只基于给定实体描述归纳，禁止引入外部知识。
+user: |
+  实体列表（name: description）：
+  {{entities_digest}}
+metadata:
+  changelog: "v1 初版"

@@ -1,0 +1,33 @@
+# Lite profile overlay — zero external middleware, single-process API.
+#
+#   helm install ragx ./deploy/helm/ragx -f deploy/helm/ragx/values-lite.yaml
+#
+# Only the API + the mock OpenAI-compatible endpoint stay up; SQLite + local FS
+# + in-process queue + hash embedder handle everything else (matches
+# deploy/compose/lite.yml).
+profile: lite
+
+image:
+  tag: "lite"
+
+api:
+  env:
+    RAGX_PROFILE: lite
+    RAGX_PLUGINS.VECTOR_STORE.SQLITE.PATH: /data/ragx.db
+
+elasticsearch:
+  enabled: false
+neo4j:
+  enabled: false
+minio:
+  enabled: false
+postgresql:
+  enabled: false
+redis:
+  enabled: false
+mockLlm:
+  enabled: true
+prometheus:
+  enabled: false
+grafana:
+  enabled: false

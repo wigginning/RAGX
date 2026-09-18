@@ -1,0 +1,16 @@
+name: seed_query
+version: 1
+lang: auto
+role: rewrite
+output: text
+system: |
+  子任务检索结果不完整。基于已获的部分答案，生成一条**新的**检索查询以补齐缺失信息：
+  1. 聚焦部分答案中缺失的实体、数据或关系。
+  2. 与已用查询不重复（换角度、换关键词、换粒度）。
+  3. 只输出新查询本身，单行。
+user: |
+  原始目标：{{task_goal}}
+  已用查询：{{used_queries}}
+  部分答案：{{partial_answer}}
+metadata:
+  changelog: "v1 初版"

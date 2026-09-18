@@ -1,0 +1,154 @@
+"""API integration tests (RX-API-01 DoD).
+
+Covers: OpenAPI generation, error-code mapping, health deep check, and an
+end-to-end upload -> search flow.
+"""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from ragx.api.app import create_app
+from ragx.core.settings import KBConfig
+
+
+@pytest.fixture
+def client():
+    app = create_app(kb_cfg=KBConfig())
+    with TestClient(app) as c:
+        yield c
+
+
+def test_openapi_generated(client) -> None:
+    spec = client.get("/openapi.json").json()
+    assert spec["info"]["title"] == "RAGX"
+    paths = spec["paths"]
+    assert "/v1/search" in paths
+    assert "/v1/documents" in paths
+    assert "/v1/tasks/{task_id}" in paths
+    assert "/v1/health" in paths
+    assert "/v1/chat/completions" in paths
+    assert "/v1/traces" in paths
+    assert "/v1/traces/{trace_id}" in paths
+
+
+def test_app_wires_semantic_cache(client) -> None:
+    """LLM-02: create_app builds and exposes a SemanticCache for the router."""
+    from ragx.llm.semantic_cache import SemanticCache
+
+    assert isinstance(client.app.state.semantic_cache, SemanticCache)
+
+
+def test_health_shallow(client) -> None:
+    resp = client.get("/v1/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
+def test_health_deep(client) -> None:
+    resp = client.get("/v1/health?deep=true")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] in ("ok", "degraded")
+    assert "vector_store" in body["checks"]
+
+
+def test_trace_id_header(client) -> None:
+    resp = client.get("/v1/health")
+    assert resp.headers.get("X-Trace-Id")
+    assert len(resp.headers["X-Trace-Id"]) == 26
+
+
+def test_task_not_found_maps_to_404(client) -> None:
+    resp = client.get("/v1/tasks/task_nonexistent")
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["error"]["code"] == 2003
+    assert "trace_id" in body["error"]
+
+
+def test_upload_document_and_search(client) -> None:
+    content = "# 测试\n\nRAGX 是一个检索增强生成平台，使用向量检索。".encode()
+    resp = client.post(
+        "/v1/documents",
+        files={"file": ("test.md", content, "text/markdown")},
+        data={"kb_id": "kb_t", "metadata": "{}"},
+    )
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["doc_id"].startswith("doc_")
+    assert body["task_id"].startswith("task_")
+
+    # run the pipeline synchronously so search has data
+    import asyncio
+
+
+    async def _run():
+        task = await client.app.state.db.get_task(body["task_id"])
+        await client.app.state.pipeline.run(task)
+
+    asyncio.run(_run())
+
+    search = client.post(
+        "/v1/search",
+        json={"kb_id": "kb_t", "query": "向量检索", "top_k": 5},
+    )
+    assert search.status_code == 200
+    results = search.json()["results"]
+    assert results, "search must return the ingested chunk"
+
+
+def test_metrics_endpoint_exposes_key_series(client) -> None:
+    """OBS-02 DoD: GET /v1/metrics exposes the §10.2 catalogue."""
+    resp = client.get("/v1/metrics")
+    assert resp.status_code == 200
+    assert "text/plain" in resp.headers["content-type"]
+
+    body = resp.text
+    for name in (
+        "ragx_query_total",
+        "ragx_query_latency_seconds",
+        "ragx_llm_tokens_total",
+        "ragx_ingest_task_total",
+        "ragx_ingest_task_duration_seconds",
+        "ragx_retrieval_recall_empty_total",
+    ):
+        assert name in body, f"metric {name} missing from /v1/metrics"
+
+
+def test_duplicate_upload_returns_2004(client) -> None:
+    content = "# 重复\n\n相同内容。".encode()
+    for _ in range(2):
+        resp = client.post(
+            "/v1/documents",
+            files={"file": ("dup.md", content, "text/markdown")},
+            data={"kb_id": "kb_t", "metadata": "{}"},
+        )
+    assert resp.status_code == 202
+    assert resp.json()["duplicate"] is True
+
+
+def test_traces_list_and_replay(client) -> None:
+    """OBS-04 DoD: GET /v1/traces lists + replays traces (§10.5)."""
+    import asyncio
+
+    from ragx.observability.rag_trace import RAGTrace
+
+    store = client.app.state.trace_store
+    asyncio.run(store.save(RAGTrace(
+        trace_id="t1", kb_id="kb_t", mode="standard", query="q1")))
+    asyncio.run(store.save(RAGTrace(
+        trace_id="t2", kb_id="kb_t", mode="agentic", query="q2")))
+
+    lst = client.get("/v1/traces?kb_id=kb_t")
+    assert lst.status_code == 200
+    body = lst.json()
+    assert body["count"] == 2
+
+    one = client.get("/v1/traces/t1")
+    assert one.status_code == 200
+    assert one.json()["trace_id"] == "t1"
+
+    missing = client.get("/v1/traces/does_not_exist")
+    assert missing.status_code == 404

@@ -1,0 +1,15 @@
+name: verify
+version: 1
+lang: auto
+role: plan
+output: structured
+schema: ragx.agentic.schemas.VerifyResult
+system: |
+  你是答案质量验证器。检查合成答案是否满足：①完整回答了用户问题的每个方面 ②每个关键论断都有引用 [n] 支撑 ③无自相矛盾。严格输出 JSON：
+  {"pass": bool, "gaps": [str]}   // pass=false 时 gaps 列出缺失点（将作为补充检索任务）
+  只验证一次，不重复验证。
+user: |
+  用户问题：{{query}}
+  合成答案：{{answer}}
+metadata:
+  changelog: "v1 初版"

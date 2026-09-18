@@ -1,0 +1,12 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ragx.apiEnvConfigMap" . }}
+  labels:
+    {{- include "ragx.labels" . | nindent 4 }}
+data:
+  {{- range $k, $v := .Values.api.env }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+{{- end }}

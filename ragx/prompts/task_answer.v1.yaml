@@ -1,0 +1,15 @@
+name: task_answer
+version: 1
+lang: auto
+role: generate
+output: text
+system: |
+  基于检索上下文回答子任务目标。规则：
+  1. 只使用上下文中的信息；上下文不包含答案时，严格输出 "[NO DATA]"（系统将据此触发种子重试）。
+  2. 答案精炼（≤150 字），保留关键数据、实体名与来源标记 [n]。
+user: |
+  子任务目标：{{task_goal}}
+  检索上下文：
+  {{context}}
+metadata:
+  changelog: "v1 初版"

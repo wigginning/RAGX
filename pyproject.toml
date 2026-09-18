@@ -1,0 +1,170 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ragx"
+version = "1.0.0"
+description = "RAGX - layered, plugin-based RAG platform"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "RAGX" }]
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "PyYAML>=6.0",
+    "fastapi>=0.111",
+    "uvicorn>=0.29",
+    "httpx>=0.27",
+    "python-multipart>=0.0.9",
+    "aiosqlite>=0.20",
+    "networkx>=3.2",
+    "numpy>=1.26",
+    # OBS-02: /v1/metrics exposition is a v0.1.0 exit criterion, so the
+    # Prometheus client is a core dependency (imported unconditionally by
+    # ragx.observability.metrics).
+    "prometheus-client>=0.20",
+]
+
+[project.optional-dependencies]
+# fakeredis backs tests/unit/ingestion/test_queue_redis.py and
+# tests/integration/test_ingest_queue_redis.py (ING-02); without it pytest
+# errors during collection and CI goes red.
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "pytest-cov>=5", "pytest-mock>=3",
+       "fakeredis>=2.20"]
+tiktoken = ["tiktoken>=0.7"]
+full = ["ragx[sqlite,graph-nx,redis,es,qdrant,neo4j,minio,deepdoc,mineru,vlm,embed-st,rerank-bge,kg-small]"]
+lite = ["ragx[sqlite,graph-nx]"]
+sqlite = []
+graph-nx = []
+embed-st = ["sentence-transformers>=2.7", "torch>=2.2"]
+rerank-bge = ["sentence-transformers>=2.7", "torch>=2.2"]
+redis = ["redis>=5"]
+es = ["elasticsearch[async]>=8.11,<9"]
+qdrant = ["qdrant-client>=1.8,<1.10"]
+neo4j = ["neo4j>=5"]
+minio = ["aiobotocore>=2.13"]
+deepdoc = ["opencv-python>=4.9", "pdfplumber>=0.11", "pypdf>=4"]
+mineru = ["magic-pdf>=0.1", "pymupdf>=1.24"]
+# RX-KG-01 small mode real path (05-kg.md §5.2.5): GLiNER zero-shot NER +
+# REBEL relation extraction. Without this extra, extract_small() falls back to
+# the deterministic rule-based extractor (same ExtractionResult schema), so the
+# lite profile works out of the box; install ragx[kg-small] for the heavy ML
+# path. small_models.py documents this extra — keep the two in sync.
+kg-small = ["gliner>=0.2.27", "transformers>=4.40", "torch>=2.2"]
+# experimental (RX-PLG-06, 13-parsing.md §13.3.3): ASR + video parsers.
+# The lite install works without these; parse() surfaces
+# UnsupportedFormatError(2002) when they're absent.
+asr = ["faster-whisper>=1.0"]
+av = ["faster-whisper>=1.0", "scenedetect>=0.6"]
+vlm = []
+llm = []
+# L4 evaluation backends (10-observability.md §10.4.2). Both are lazy-imported
+# by ragx/observability/eval; without them the ragas/deepeval metrics report
+# NaN and only the self-implemented citation_accuracy is produced. The eval
+# runner is `python scripts/eval_l4.py` (see docs/TASKS.md §4 L4).
+eval = ["ragas>=0.2,<0.3", "deepeval>=0.22", "datasets>=2"]
+
+[project.scripts]
+ragx-serve = "ragx.api.__main__:main"
+ragx-mcp = "ragx.mcp.__main__:main"
+
+# SPI entry point groups (01-spi.md §1.1). Builtin plugins are registered here so
+# that `PluginRegistry.discover()` works out of the box without packaging each one.
+[project.entry-points."ragx.parsers"]
+text = "ragx.plugins.parser_text:TextMarkdownParser"
+deepdoc = "ragx.plugins.parser_deepdoc:DeepDocParser"
+mineru = "ragx.plugins.parser_mineru:MinerUParser"
+# experimental (RX-PLG-06)
+asr = "ragx.plugins.parser_asr:ASRParser"
+av = "ragx.plugins.parser_av:AVParser"
+
+[project.entry-points."ragx.processors"]
+vlm = "ragx.plugins.processor_vlm:VLMDescribeProcessor"
+
+[project.entry-points."ragx.embedders"]
+hash = "ragx.plugins.embed_hash:HashEmbedder"
+openai_compat = "ragx.plugins.embed_openai_compat:OpenAICompatEmbedder"
+
+[project.entry-points."ragx.rerankers"]
+# (no built-in reranker in the lite profile; KBConfig.reranker=None)
+
+[project.entry-points."ragx.vector_stores"]
+sqlite = "ragx.plugins.vector_sqlite:SQLiteVectorStore"
+es = "ragx.plugins.vector_es:ESVectorStore"
+qdrant = "ragx.plugins.vector_qdrant:QdrantVectorStore"
+
+[project.entry-points."ragx.graph_stores"]
+nx = "ragx.plugins.graph_nx:NetworkXGraphStore"
+neo4j = "ragx.plugins.graph_neo4j:Neo4jGraphStore"
+
+[project.entry-points."ragx.llm_providers"]
+openai_compat = "ragx.plugins.llm_openai_compat:OpenAICompatibleLLM"
+
+[tool.setuptools.packages.find]
+include = ["ragx*"]
+
+[tool.setuptools.package-data]
+ragx = ["prompts/*.yaml", "py.typed"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "contract: SPI contract suites (01-spi.md §1.4)",
+    "integration: end-to-end tests over the lite stack",
+]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["__pycache__", "build", "dist", "deploy"]
+
+[tool.coverage.run]
+# L1 gate (docs/TASKS.md §4): core coverage >= 80%. `ragx/plugins` is omitted
+# because it holds optional third-party adapters (ES/Qdrant/Neo4j/MinIO, heavy
+# parsers/embedders) that the lite CI cannot execute without those services;
+# plugin behaviour is instead exercised by the contract suites when services
+# are present. See README "Design deviations".
+source = ["ragx"]
+omit = ["*/ragx/plugins/*", "*/ragx/mcp/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # function call in default argument (FastAPI uses)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]  # re-exports are intentional in __init__.py
+
+[tool.mypy]
+# 3.12 semantics: newer numpy stubs use PEP 695 `type` statements, which
+# cannot be parsed under 3.11 semantics (mypy exits 2 in the 3.12 CI job).
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_redundant_casts = true
+strict_optional = true
+disallow_untyped_decorators = false
+files = ["ragx/core", "ragx/spi", "ragx/llm", "ragx/retrieval"]
+
+[[tool.mypy.overrides]]
+module = "ragx.plugins.*"
+ignore_errors = true

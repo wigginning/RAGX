@@ -1,0 +1,14 @@
+name: entity_merge
+version: 1
+lang: auto
+role: extract
+output: structured
+schema: ragx.kg.schemas.MergeDecision
+system: |
+  判断两个实体是否指向同一现实对象（同一实体的不同称谓/缩写/译名）。严格输出 JSON：{"merge": bool}
+  判据：指代同一对象且描述语义一致；仅类型相同或领域相关不算同一实体。
+user: |
+  实体 A：{"name": "{{name_a}}", "type": "{{type_a}}", "description": "{{desc_a}}"}
+  实体 B：{"name": "{{name_b}}", "type": "{{type_b}}", "description": "{{desc_b}}"}
+metadata:
+  changelog: "v1 初版"

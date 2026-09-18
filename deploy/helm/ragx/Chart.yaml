@@ -1,0 +1,22 @@
+apiVersion: v2
+name: ragx
+description: |-
+  RAGX — a layered RAG system (FastAPI + SPI plugin architecture).
+  Helm chart deploys the API, an optional dedicated ingestion worker, and
+  pluggable middleware (Elasticsearch, Neo4j, MinIO, PostgreSQL, Redis),
+  plus Prometheus + Grafana for observability. Toggle each component with
+  the matching `*.enabled` value; the `profile` knob (lite|full) pre-sets
+  the middleware switches so a one-line override switches the whole stack.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - rag
+  - llm
+  - retrieval
+  - knowledge-graph
+home: https://github.com/your-org/ragx
+sources:
+  - https://github.com/your-org/ragx
+maintainers:
+  - name: RAGX team
